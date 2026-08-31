@@ -5,10 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.141.1",
+    "greenlet>=3.5.5",
     "httpx",
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
+    "sqlalchemy>=2.0.52",
+    "uvicorn>=0.52.4",
 ]
 
 [dependency-groups]
@@ -21,3 +27,4 @@ dev = [
 pythonpath = [
   "src"
 ]
+asyncio_default_test_loop_scope = "session"
