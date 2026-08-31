@@ -23,6 +23,7 @@ load_dotenv()
 # add your model's MetaData object here
 # for 'autogenerate' support
 from evidence.models import Base
+import merchant.models  # Ensure the new models are imported so Base.metadata knows about them
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
