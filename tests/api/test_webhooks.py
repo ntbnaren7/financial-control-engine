@@ -20,19 +20,7 @@ def generate_signature(payload: dict, secret: str) -> str:
 
 import pytest_asyncio
 
-@pytest_asyncio.fixture(autouse=True, loop_scope="session")
-async def cleanup_db():
-    # Cleanup before and after each test
-    async def _cleanup():
-        async with AsyncSessionLocal() as session:
-            observations = await session.scalars(select(ProviderObservation))
-            for obs in observations:
-                await session.delete(obs)
-            await session.commit()
-    
-    await _cleanup()
-    yield
-    await _cleanup()
+
 
 @pytest.mark.asyncio
 async def test_valid_webhook_delivery():
