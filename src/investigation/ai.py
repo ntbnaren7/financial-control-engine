@@ -41,58 +41,6 @@ class InvestigationEngine:
 
     def _build_system_prompt(self) -> str:
         hypothesis_block = self._build_hypothesis_definitions_block()
-        example = {
-            "eligibility": "ELIGIBLE",
-            "overall_confidence": "MEDIUM",
-            "selections": [
-                {
-                    "hypothesis_id": "WEBHOOK_OBSERVED_NOT_PROCESSED",
-                    "rank": 1,
-                    "rationale": "Webhook observation exists but no processing record found under COMPLETE coverage.",
-                    "confidence_band": "MEDIUM",
-                    "supporting_evidence_ids": ["EV-WH-001"],
-                    "contradicting_evidence_ids": [],
-                    "missing_evidence_types": ["E_MERCHANT_PROCESSING"]
-                },
-                {
-                    "hypothesis_id": "WEBHOOK_NOT_OBSERVED",
-                    "rank": 2,
-                    "rationale": "Not supported — webhook observation record is present.",
-                    "confidence_band": "LOW",
-                    "supporting_evidence_ids": [],
-                    "contradicting_evidence_ids": ["EV-WH-001"],
-                    "missing_evidence_types": []
-                },
-                {
-                    "hypothesis_id": "WEBHOOK_PROCESSED_STATE_NOT_UPDATED",
-                    "rank": 3,
-                    "rationale": "No processing record exists, so state update failure is unlikely.",
-                    "confidence_band": "LOW",
-                    "supporting_evidence_ids": [],
-                    "contradicting_evidence_ids": ["EV-PC-001"],
-                    "missing_evidence_types": []
-                },
-                {
-                    "hypothesis_id": "PROVIDER_MERCHANT_STATE_REPRESENTATION_MISMATCH",
-                    "rank": 4,
-                    "rationale": "Processing chain failure observed; representation mismatch is unlikely to be the cause.",
-                    "confidence_band": "LOW",
-                    "supporting_evidence_ids": [],
-                    "contradicting_evidence_ids": [],
-                    "missing_evidence_types": []
-                },
-                {
-                    "hypothesis_id": "EVIDENCE_INSUFFICIENT",
-                    "rank": 5,
-                    "rationale": "Evidence is sufficient to distinguish the primary hypothesis in this case.",
-                    "confidence_band": "LOW",
-                    "supporting_evidence_ids": [],
-                    "contradicting_evidence_ids": [],
-                    "missing_evidence_types": []
-                }
-            ]
-        }
-
         return (
             "You are an investigation assistant for a financial control engine.\n"
             "Analyze the provided discrepancy and evidence, and rank the five causal hypotheses.\n\n"
@@ -101,15 +49,21 @@ class InvestigationEngine:
             "Reason over the observed event sequence. A hypothesis may be ranked highly only when "
             "its supporting conditions are backed by authoritative evidence.\n\n"
             "**Critical epistemic rules:**\n"
-            "- Absence of an observation is NOT evidence of absence unless coverage is explicitly "
-            "COMPLETE. If coverage is UNKNOWN or PARTIAL, a missing record means the evidence is "
-            "inconclusive, not that the event did not occur.\n"
+            "- Step 1: Check coverage status.\n"
+            "  * If any relevant coverage item (e.g. E_WEBHOOK_COVERAGE, E_PROCESSING_COVERAGE, E_STATE_TRANSITION_COVERAGE) has coverage='UNKNOWN' or is absent, "
+            "you CANNOT conclude a specific event failure occurred (absence of record is inconclusive) -> You MUST rank EVIDENCE_INSUFFICIENT at 1.\n"
+            "- Step 2: If coverage is COMPLETE, examine the observed event sequence:\n"
+            "  * If no webhook observation is present and E_WEBHOOK_COVERAGE shows count 0 with COMPLETE coverage -> rank WEBHOOK_NOT_OBSERVED at 1.\n"
+            "  * If webhook is present (E_WEBHOOK_CAPTURED) but E_PROCESSING_COVERAGE shows count 0 under COMPLETE coverage -> rank WEBHOOK_OBSERVED_NOT_PROCESSED at 1.\n"
+            "  * If webhook is present (E_WEBHOOK_CAPTURED), merchant processing succeeded (E_MERCHANT_PROCESSING status='PROCESSED'), but merchant order is UNPAID and transition count is 0 under COMPLETE coverage -> rank WEBHOOK_PROCESSED_STATE_NOT_UPDATED at 1.\n"
+            "  * If all processing and transitions succeeded and states match in business meaning but differ in status label (e.g. 'captured' vs 'SETTLED') -> rank PROVIDER_MERCHANT_STATE_REPRESENTATION_MISMATCH at 1.\n"
+            "- Step 3: Consistency checks:\n"
+            "  * Do NOT rank WEBHOOK_NOT_OBSERVED at 1 if a webhook observation (E_WEBHOOK_CAPTURED) is present in the evidence list (this is a fatal contradiction).\n"
+            "  * Do NOT select a hypothesis whose disqualifying conditions are present in the evidence.\n\n"
             "- Do NOT select a hypothesis merely because its downstream consequence resembles the "
             "observed discrepancy. Select the hypothesis directly consistent with the observed "
             "event sequence.\n"
-            "- Do NOT select a hypothesis whose disqualifying conditions are present in the evidence.\n"
-            "- If you cannot sufficiently distinguish the cause from the available evidence — even "
-            "with significant evidence present — rank EVIDENCE_INSUFFICIENT at position 1.\n\n"
+            "- Do NOT select a hypothesis whose disqualifying conditions are present in the evidence.\n\n"
 
             "## Hypothesis Definitions\n\n"
             "You MUST rank all five hypotheses. The following definitions specify what each "
@@ -117,31 +71,86 @@ class InvestigationEngine:
             f"{hypothesis_block}"
 
             "## Required Output Format\n\n"
-            "Output ONLY a raw JSON object. Do NOT output a schema or schema description. "
-            "Do NOT output markdown code blocks. Output ONLY the filled-in JSON.\n\n"
-            "Here is an example of a valid response (with placeholder values — "
-            "you MUST fill in your own analysis):\n"
-            f"{json.dumps(example, indent=2)}\n\n"
-
+            "Output ONLY a raw JSON object. Do NOT output markdown code blocks. Output ONLY the filled-in JSON.\n\n"
+            "You MUST rank all five hypotheses in 'selections', with ranks 1, 2, 3, 4, and 5.\n"
+            "Here is the exact JSON structure required:\n"
+            "{\n"
+            '  "eligibility": "ELIGIBLE",\n'
+            '  "overall_confidence": "HIGH",\n'
+            '  "selections": [\n'
+            '    {\n'
+            '      "hypothesis_id": "<HYPOTHESIS_AT_RANK_1>",\n'
+            '      "rank": 1,\n'
+            '      "rationale": "<Reason why this is the top hypothesis based on the evidence>",\n'
+            '      "confidence_band": "HIGH",\n'
+            '      "supporting_evidence_ids": ["<EVIDENCE_ID>"],\n'
+            '      "contradicting_evidence_ids": [],\n'
+            '      "missing_evidence_types": []\n'
+            '    },\n'
+            '    {\n'
+            '      "hypothesis_id": "<HYPOTHESIS_AT_RANK_2>",\n'
+            '      "rank": 2,\n'
+            '      "rationale": "<Reason why this is rank 2>",\n'
+            '      "confidence_band": "MEDIUM",\n'
+            '      "supporting_evidence_ids": [],\n'
+            '      "contradicting_evidence_ids": [],\n'
+            '      "missing_evidence_types": []\n'
+            '    },\n'
+            '    {\n'
+            '      "hypothesis_id": "<HYPOTHESIS_AT_RANK_3>",\n'
+            '      "rank": 3,\n'
+            '      "rationale": "<Reason why this is rank 3>",\n'
+            '      "confidence_band": "LOW",\n'
+            '      "supporting_evidence_ids": [],\n'
+            '      "contradicting_evidence_ids": [],\n'
+            '      "missing_evidence_types": []\n'
+            '    },\n'
+            '    {\n'
+            '      "hypothesis_id": "<HYPOTHESIS_AT_RANK_4>",\n'
+            '      "rank": 4,\n'
+            '      "rationale": "<Reason why this is rank 4>",\n'
+            '      "confidence_band": "LOW",\n'
+            '      "supporting_evidence_ids": [],\n'
+            '      "contradicting_evidence_ids": [],\n'
+            '      "missing_evidence_types": []\n'
+            '    },\n'
+            '    {\n'
+            '      "hypothesis_id": "<HYPOTHESIS_AT_RANK_5>",\n'
+            '      "rank": 5,\n'
+            '      "rationale": "<Reason why this is rank 5>",\n'
+            '      "confidence_band": "LOW",\n'
+            '      "supporting_evidence_ids": [],\n'
+            '      "contradicting_evidence_ids": [],\n'
+            '      "missing_evidence_types": []\n'
+            '    }\n'
+            '  ]\n'
+            "}\n\n"
             "## Output Rules\n"
-            "- eligibility: must be 'ELIGIBLE' or 'INELIGIBLE'.\n"
-            "- overall_confidence: must be 'HIGH', 'MEDIUM', or 'LOW'.\n"
-            "- selections: EXACTLY 5 entries, one per hypothesis, ranked 1 (most likely) to 5 (least likely). No duplicate ranks.\n"
-            "- hypothesis_id: must be one of the five V0HypothesisType values shown above.\n"
-            "- Do not invent evidence IDs. Use only IDs from the supplied evidence list.\n"
-            "- confidence_band: must be 'HIGH', 'MEDIUM', or 'LOW'.\n"
-            "- Do not output markdown, code fences, or commentary. Raw JSON only."
+            "- eligibility: 'ELIGIBLE' or 'INELIGIBLE'.\n"
+            "- overall_confidence: 'HIGH', 'MEDIUM', or 'LOW'.\n"
+            "- selections: EXACTLY 5 entries. You MUST include each of the 5 hypotheses with unique ranks 1 to 5: "
+            "WEBHOOK_NOT_OBSERVED, WEBHOOK_OBSERVED_NOT_PROCESSED, WEBHOOK_PROCESSED_STATE_NOT_UPDATED, "
+            "PROVIDER_MERCHANT_STATE_REPRESENTATION_MISMATCH, EVIDENCE_INSUFFICIENT.\n"
+            "- supporting_evidence_ids / contradicting_evidence_ids: Use only IDs from the supplied evidence packet.\n"
+            "- missing_evidence_types: Leave as empty list [] unless requesting specific EvidenceType names.\n"
+            "- confidence_band: 'HIGH', 'MEDIUM', or 'LOW'.\n"
+            "- Raw JSON only."
         )
 
     def _build_user_prompt(self, context: DiscrepancyContext, evidence: List[EvidenceItem]) -> str:
         prompt = (
-            f"Case Description: {context.description}\n"
-            f"Discrepancy: {context.model_dump_json()}\n"
-            f"Supplied Evidence:\n"
+            f"Case: {context.case_id}\n"
+            f"Discrepancy Description: {context.description}\n"
+            f"- Provider Status: {context.provider_status}\n"
+            f"- Merchant Status: {context.merchant_status}\n"
+            f"- Amount Match: {context.amount_match}\n"
+            f"- Currency Match: {context.currency_match}\n"
+            f"- Identity Verified: {context.identity_verified}\n\n"
+            f"Supplied Evidence Packet ({len(evidence)} items):\n"
         )
         for ev in evidence:
-            content_str = ev.content.model_dump_json() if hasattr(ev.content, "model_dump_json") else json.dumps(ev.content)
-            prompt += f"- ID: {ev.id}, Type: {ev.type.value}, Content: {content_str}\n"
+            content_str = ev.content.model_dump_json(exclude_none=True) if hasattr(ev.content, "model_dump_json") else json.dumps(ev.content)
+            prompt += f"- [{ev.id}] {ev.type.value}: {content_str}\n"
         return prompt
 
     async def investigate(self, context: DiscrepancyContext, evidence: List[EvidenceItem]) -> InvestigationResult:

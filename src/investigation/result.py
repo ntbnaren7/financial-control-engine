@@ -4,12 +4,17 @@ from pydantic import BaseModel
 from src.investigation.models import InvestigationProposal
 
 class InvestigationStatus(str, Enum):
-    ACCEPTED = "ACCEPTED"  # Proposal is structurally and semantically admissible (not necessarily proven true)
+    ACCEPTED = "ACCEPTED"  
+    # ACCEPTED: The proposal passed all Pydantic schema validation, structural invariants, 
+    # and deterministic negative constraint admissibility checks.
+    # CRITICAL: This designates epistemic admissibility for operator/downstream consumption; 
+    # it does NOT assert that the proposed root cause is established ground-truth financial fact.
+    
     API_ERROR = "API_ERROR"
     EMPTY_OUTPUT = "EMPTY_OUTPUT"
     SCHEMA_INVALID = "SCHEMA_INVALID"
     INVARIANT_INVALID = "INVARIANT_INVALID"
-    PROPOSAL_SEMANTIC_CONFLICT = "PROPOSAL_SEMANTIC_CONFLICT"  # Proposal contradicts authoritative facts
+    PROPOSAL_SEMANTIC_CONFLICT = "PROPOSAL_SEMANTIC_CONFLICT"  # Proposal contradicted authoritative evidence facts
 
 class InvestigationResult(BaseModel):
     status: InvestigationStatus

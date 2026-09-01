@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from src.evidence.models import Base, ProviderObservation
+from src.merchant.models import MerchantOrder
 from src.evidence.db import engine as db_engine, AsyncSessionLocal as session_maker
 from src.evidence.gatherer import DatabaseEvidenceGatherer
 from src.reconciliation.engine import M3Engine
@@ -22,17 +23,43 @@ async def main():
     
     # We will use a unique order_id for this run so it doesn't conflict with other test data
     test_order_id = f"order_stale_{uuid.uuid4().hex[:8]}"
+    test_payment_id = f"pay_{uuid.uuid4().hex[:8]}"
     
-    # 1. Insert some evidence into the DB (simulating real production observations)
+    # 1. Insert real observational evidence into the DB:
+    # - Provider payment observation
+    # - Ingested webhook observation
+    # - Merchant order record
     async with session_maker() as session:
-        obs1 = ProviderObservation(
+        obs_pay = ProviderObservation(
+            provider="razorpay",
+            event_id=f"evt_pay_{uuid.uuid4().hex[:8]}",
+            event_type="payment",
+            payload={
+                "order_id": test_order_id,
+                "payment_id": test_payment_id,
+                "amount": 5000,
+                "currency": "INR",
+                "status": "captured",
+                "captured": True
+            }
+        )
+        obs_wh = ProviderObservation(
             provider="razorpay",
             event_id=f"evt_hook_{uuid.uuid4().hex[:8]}",
             event_type="webhook",
-            payload={"order_id": test_order_id}
+            payload={"order_id": test_order_id, "payment_id": test_payment_id}
         )
-        # Note: No processing event inserted. This means webhook received, but not processed.
-        session.add(obs1)
+        merchant_ord = MerchantOrder(
+            merchant_order_id=f"mo_{uuid.uuid4().hex[:8]}",
+            razorpay_order_id=test_order_id,
+            expected_amount=5000,
+            currency="INR",
+            status="UNPAID"
+        )
+        # Note: No processing event inserted. This means webhook was received, but not processed.
+        session.add(obs_pay)
+        session.add(obs_wh)
+        session.add(merchant_ord)
         await session.commit()
     
     # 2. Receive raw payment and order (The Trigger)

@@ -4,7 +4,7 @@ from sqlalchemy import String, Integer, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from evidence.models import Base
+from src.evidence.models import Base
 
 class MerchantOrder(Base):
     __tablename__ = "merchant_orders"

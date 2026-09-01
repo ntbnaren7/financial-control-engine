@@ -1,4 +1,5 @@
 from enum import Enum
+from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any
 
@@ -42,8 +43,10 @@ class EvidenceCoverage(str, Enum):
     """
     Authoritative completeness of the evidence observation layer.
 
-    COMPLETE  — The observation layer has full coverage. Absence of a record
-                means the event definitively did not occur.
+    COMPLETE  — For this specific entity/event type and observation boundary,
+                the queried source is authoritative and the query covers the
+                complete relevant observation domain. Absence of a record means
+                the event definitively did not occur within that domain.
     PARTIAL   — The observation layer has partial coverage. Absence of a record
                 is inconclusive.
     UNKNOWN   — Coverage completeness cannot be determined. Absence of a record
@@ -81,19 +84,74 @@ class InvestigationProposal(BaseModel):
     selections: List[HypothesisSelection] = Field(..., min_length=5, max_length=5, description="Must contain exactly 5 selections, one for each hypothesis type.")
 
 # ==========================================
-# 4. Production Engine Input Structure
+# 4. Production Engine Input & Typed Observation Models
 # ==========================================
+
+class ProviderPaymentContent(BaseModel):
+    """Observation of a provider-side payment record."""
+    payment_id: str
+    order_id: Optional[str] = None
+    amount: int
+    currency: str
+    status: str
+    captured: bool
+    observed_at: Optional[datetime] = None
+
+class ProviderOrderContent(BaseModel):
+    """Observation of a provider-side order record."""
+    provider_order_id: str
+    status: str
+    amount: Optional[int] = None
+    currency: Optional[str] = None
+    observed_at: Optional[datetime] = None
+
+class MerchantOrderStateContent(BaseModel):
+    """Observation of a merchant-side order state."""
+    merchant_order_id: str
+    razorpay_order_id: Optional[str] = None
+    status: str
+    expected_amount: int
+    currency: str
+    updated_at: Optional[datetime] = None
+
 class WebhookCapturedContent(BaseModel):
+    """Observation of a captured webhook event."""
     present: bool
+    event_id: Optional[str] = None
+    observed_at: Optional[datetime] = None
+
+class WebhookCoverageContent(BaseModel):
+    """Coverage completeness of the webhook ingestion observation layer."""
+    coverage: EvidenceCoverage
+    webhook_count: int
 
 class ProcessingCoverageContent(BaseModel):
+    """Coverage completeness of the merchant processing observation layer."""
     coverage: EvidenceCoverage
     processing_count: int
 
+class MerchantProcessingContent(BaseModel):
+    """Observation of a merchant webhook processing record."""
+    event_id: str
+    status: str
+    processed_at: Optional[datetime] = None
+
+class StateTransitionCoverageContent(BaseModel):
+    """Coverage completeness of the merchant state transition observation layer."""
+    coverage: EvidenceCoverage
+    transition_count: int
+
+class MerchantStateTransitionContent(BaseModel):
+    """Observation of a merchant order state transition event."""
+    transition_id: Optional[str] = None
+    from_status: Optional[str] = None
+    to_status: str
+    transitioned_at: Optional[datetime] = None
+
 class EvidenceItem(BaseModel):
-    id: str = Field(..., description="Stable evidence ID (e.g., EV-001)")
+    id: str = Field(..., description="Stable, unique evidence ID within this investigation packet (e.g. EV-PAY-01)")
     type: EvidenceType
-    content: Any = Field(..., description="The actual evidence data/metadata, can be strongly typed (e.g. WebhookCapturedContent) or raw dict.")
+    content: Any = Field(..., description="The typed observation content model or structured dict.")
 
 class DiscrepancyContext(BaseModel):
     case_id: str
@@ -105,7 +163,77 @@ class DiscrepancyContext(BaseModel):
     identity_verified: bool
 
 # ==========================================
-# 5. Hypothesis Semantics Contract
+# 5. Formal Evidence Contract Definitions
+# ==========================================
+class EvidenceDefinition(BaseModel):
+    """
+    Formal contract specifying the observational boundary and epistemic limits
+    of an evidence type.
+    """
+    evidence_type: EvidenceType
+    description: str
+    fact_established: str
+    epistemic_limitation: str
+
+EVIDENCE_DEFINITIONS: dict[EvidenceType, EvidenceDefinition] = {
+    EvidenceType.E_PROVIDER_PAYMENT: EvidenceDefinition(
+        evidence_type=EvidenceType.E_PROVIDER_PAYMENT,
+        description="Authoritative provider payment observation.",
+        fact_established="Establishes payment existence, amount, currency, and captured state on the provider side.",
+        epistemic_limitation="Does NOT establish whether a webhook was dispatched, received, or processed by the merchant."
+    ),
+    EvidenceType.E_PROVIDER_ORDER: EvidenceDefinition(
+        evidence_type=EvidenceType.E_PROVIDER_ORDER,
+        description="Authoritative provider order observation.",
+        fact_established="Establishes the provider's recorded order state and expected amount.",
+        epistemic_limitation="Does NOT establish the internal merchant state or webhook processing status."
+    ),
+    EvidenceType.E_WEBHOOK_CAPTURED: EvidenceDefinition(
+        evidence_type=EvidenceType.E_WEBHOOK_CAPTURED,
+        description="Ingested webhook payload record.",
+        fact_established="Establishes whether a specific provider webhook event was observed and recorded by ingestion.",
+        epistemic_limitation="Does NOT establish whether downstream business logic processed the event or updated order state."
+    ),
+    EvidenceType.E_WEBHOOK_COVERAGE: EvidenceDefinition(
+        evidence_type=EvidenceType.E_WEBHOOK_COVERAGE,
+        description="Ingestion observation completeness boundary.",
+        fact_established="Establishes the completeness scope of the webhook ingestion logs for the given order window.",
+        epistemic_limitation="Absence of a record establishes webhook absence ONLY when coverage is COMPLETE."
+    ),
+    EvidenceType.E_MERCHANT_PROCESSING: EvidenceDefinition(
+        evidence_type=EvidenceType.E_MERCHANT_PROCESSING,
+        description="Merchant webhook handler execution record.",
+        fact_established="Establishes that the merchant's processing worker executed for this webhook event.",
+        epistemic_limitation="Does NOT prove that the database transaction updating the order status committed successfully."
+    ),
+    EvidenceType.E_PROCESSING_COVERAGE: EvidenceDefinition(
+        evidence_type=EvidenceType.E_PROCESSING_COVERAGE,
+        description="Merchant processing observation completeness boundary.",
+        fact_established="Establishes whether the queried logs cover the entire relevant processing stream.",
+        epistemic_limitation="Absence of processing records proves processing did not occur ONLY when coverage is COMPLETE."
+    ),
+    EvidenceType.E_MERCHANT_ORDER_STATE: EvidenceDefinition(
+        evidence_type=EvidenceType.E_MERCHANT_ORDER_STATE,
+        description="Current persistent state of the merchant order.",
+        fact_established="Establishes the current status, amount, and currency recorded in the merchant order database.",
+        epistemic_limitation="Does NOT establish the sequence of historical state transitions that led to this state."
+    ),
+    EvidenceType.E_MERCHANT_STATE_TRANSITION: EvidenceDefinition(
+        evidence_type=EvidenceType.E_MERCHANT_STATE_TRANSITION,
+        description="Historical order state transition record.",
+        fact_established="Establishes that an explicit status change was persisted in the order lifecycle audit log.",
+        epistemic_limitation="Does NOT establish provider-side state."
+    ),
+    EvidenceType.E_STATE_TRANSITION_COVERAGE: EvidenceDefinition(
+        evidence_type=EvidenceType.E_STATE_TRANSITION_COVERAGE,
+        description="Order lifecycle audit log completeness boundary.",
+        fact_established="Establishes whether state transition audit logging was active and complete for this order.",
+        epistemic_limitation="Absence of transition records proves state was not updated ONLY when coverage is COMPLETE."
+    ),
+}
+
+# ==========================================
+# 6. Hypothesis Semantics Contract
 # ==========================================
 class HypothesisDefinition(BaseModel):
     """
