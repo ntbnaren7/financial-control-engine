@@ -37,3 +37,20 @@ class ReconciliationResult:
     currency_status: str
     provider_state: str
     merchant_state: str
+
+@dataclass(frozen=True)
+class VerifiedDiscrepancy:
+    """
+    Produced exclusively by the M3 deterministic engine.
+    Represents a discrepancy that has been explicitly gated and verified 
+    as eligible for an M4 causal investigation.
+    """
+    discrepancy_id: str
+    payment_id: str
+    order_id: str
+    description: str
+    provider_status: str
+    merchant_status: str
+    amount_match: bool
+    currency_match: bool
+    identity_verified: bool
