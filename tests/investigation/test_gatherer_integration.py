@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from src.evidence.models import Base, ProviderObservation
@@ -49,13 +50,17 @@ async def test_gatherer_with_postgresql(db_session_maker):
     # Insert some data
     async with db_session_maker() as session:
         obs1 = ProviderObservation(
-            provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
             event_id="evt_1",
             event_type="webhook",
             payload={"order_id": "ord_123"}
         )
         obs2 = ProviderObservation(
-            provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
             event_id="evt_2",
             event_type="processing",
             payload={"order_id": "ord_123"}

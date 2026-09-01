@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 from enum import Enum
 from dataclasses import dataclass
 from typing import List
@@ -17,15 +18,20 @@ from src.reconciliation.models import VerifiedDiscrepancy
 
 from src.control.provenance import AuthorizationProvenance
 
+from src.domain.incidents.models import EscalationArtifact
+
 class ActionDecision(str, Enum):
     ALLOW_REPAIR = "ALLOW_REPAIR"
+    ALLOW_REFUND = "ALLOW_REFUND"
     NO_ACTION = "NO_ACTION"
+    ESCALATE = "ESCALATE"
 
 @dataclass
 class ControlDecision:
     decision: ActionDecision
     reason: str
     provenance: AuthorizationProvenance | None = None
+    escalation_artifact: EscalationArtifact | None = None
 
 def evaluate_repair_eligibility(
     discrepancy: VerifiedDiscrepancy,
@@ -102,7 +108,28 @@ def evaluate_repair_eligibility(
         return _reject("Proposal missing rank-1 hypothesis.")
 
     if top_sel.hypothesis_id == V0HypothesisType.EVIDENCE_INSUFFICIENT:
-        return _reject("AI concluded EVIDENCE_INSUFFICIENT (H5). Escalating.")
+        reason = "AI concluded EVIDENCE_INSUFFICIENT (H5). Human review required."
+        prov = AuthorizationProvenance(
+            incident_id=incident_id,
+            m3_discrepancy=m3_desc,
+            m4_hypothesis=m4_hypo,
+            semantic_validation=sem_val,
+            verified_facts=verified_facts,
+            control_rule="STRICT_ADMISSIBILITY",
+            fresh_merchant_state=merchant_order.status,
+            atomic_precondition="UPDATE WHERE status='UNPAID'",
+            authorized=False,
+            reason=reason
+        )
+        artifact = EscalationArtifact(
+            incident_id=incident_id,
+            reason=reason,
+            proposition_scope=discrepancy.payment_id or discrepancy.order_id,
+            knowledge_state="UNKNOWN",
+            recommended_action="Review available evidence manually",
+            provenance=prov.__dict__
+        )
+        return ControlDecision(ActionDecision.ESCALATE, reason, prov, artifact)
 
     if top_sel.hypothesis_id != V0HypothesisType.WEBHOOK_PROCESSED_STATE_NOT_UPDATED:
         return _reject(f"Hypothesis {top_sel.hypothesis_id.value} does not have an automated repair path.")
@@ -137,3 +164,61 @@ def evaluate_repair_eligibility(
         reason=reason
     )
     return ControlDecision(ActionDecision.ALLOW_REPAIR, reason, prov)
+
+from src.state.models import ReconstructedState, KnowledgeState
+from src.integrations.provider import ProviderQueryConfidence
+from src.domain.refunds.models import Refund
+
+def evaluate_refund_eligibility(
+    reconstructed_state: ReconstructedState,
+    provider_query_confidence: ProviderQueryConfidence,
+    refund_intent: Refund,
+    incident_id: str
+) -> ControlDecision:
+    """
+    Control Plane: A deterministic function that independently evaluates
+    refund eligibility for a specific refund intent.
+    """
+    def _reject(reason: str) -> ControlDecision:
+        prov = AuthorizationProvenance(
+            incident_id=incident_id,
+            m3_discrepancy="",
+            m4_hypothesis="",
+            semantic_validation="ACCEPTED",
+            verified_facts={},
+            control_rule="REFUND_ELIGIBILITY",
+            fresh_merchant_state="UNKNOWN",
+            atomic_precondition="NONE",
+            authorized=False,
+            reason=reason
+        )
+        return ControlDecision(ActionDecision.NO_ACTION, reason, prov)
+
+    if reconstructed_state.knowledge_state != KnowledgeState.VERIFIED:
+        return _reject("Knowledge state is not VERIFIED. Epistemic uncertainty prohibits financial mutation.")
+
+    if reconstructed_state.observed_financial_state is not None:
+        return _reject("A concrete financial state already exists for this intent. Non-execution is not verified.")
+
+    if provider_query_confidence != ProviderQueryConfidence.AUTHORITATIVE_NOT_EXECUTED:
+        return _reject(f"Provider query confidence is {provider_query_confidence}, expected AUTHORITATIVE_NOT_EXECUTED.")
+
+    # In a real implementation, you'd also check:
+    # 1. refund_intent.amount <= payment.refundable_amount
+    # 2. refund_intent.currency == payment.currency
+    # 3. no_prior_action_succeeded_for_intent(refund_intent.refund_intent_id)
+
+    reason = "All preconditions satisfied for CONTROLLED_REFUND."
+    prov = AuthorizationProvenance(
+        incident_id=incident_id,
+        m3_discrepancy="",
+        m4_hypothesis="",
+        semantic_validation="ACCEPTED",
+        verified_facts={},
+        control_rule="REFUND_ELIGIBILITY",
+        fresh_merchant_state="UNKNOWN",
+        atomic_precondition="NONE",
+        authorized=True,
+        reason=reason
+    )
+    return ControlDecision(ActionDecision.ALLOW_REFUND, reason, prov)

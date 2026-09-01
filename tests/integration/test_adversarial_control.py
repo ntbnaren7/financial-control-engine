@@ -1,3 +1,7 @@
+from src.evidence.models import EntityType
+import pytest
+pytestmark = [pytest.mark.postgres, pytest.mark.legacy]
+
 import os
 import sys
 import pytest
@@ -51,7 +55,9 @@ async def seed_db(order_id: str, payment_id: str, order_status: str = "UNPAID", 
             status=order_status
         )
         obs_pay = ProviderObservation(
-            provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
             event_id=f"evt_pay_{uuid.uuid4().hex[:8]}",
             event_type="payment",
             payload={"order_id": order_id, "payment_id": payment_id, "status": "captured", "captured": True, "amount": 5000, "currency": "INR"}
@@ -61,7 +67,9 @@ async def seed_db(order_id: str, payment_id: str, order_status: str = "UNPAID", 
         
         if include_processing:
             obs_proc = ProviderObservation(
-                provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
                 event_id=f"evt_proc_{uuid.uuid4().hex[:8]}",
                 event_type="processing",
                 payload={"order_id": order_id, "payment_id": payment_id, "status": "PROCESSED"}
@@ -89,7 +97,9 @@ def create_webhook_payload(order_id: str, payment_id: str):
 async def insert_webhook_and_run(order_id: str, payment_id: str) -> dict | None:
     async with AsyncSessionLocal() as session:
         obs = ProviderObservation(
-            provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
             event_id=f"evt_wh_{uuid.uuid4().hex[:8]}",
             event_type="webhook",
             payload=create_webhook_payload(order_id, payment_id)

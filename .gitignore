@@ -60,6 +60,7 @@ dist/
 *.db
 *.db-journal
 benchmark_results/
+artifacts/
 
 # ----------------------------------------------------------------------------
 # OS Files

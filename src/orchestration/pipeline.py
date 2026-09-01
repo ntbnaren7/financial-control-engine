@@ -1,5 +1,7 @@
+from src.evidence.models import EntityType
 import logging
 from datetime import datetime, timezone
+from typing import cast, Any, Dict
 from src.evidence.db import AsyncSessionLocal
 from src.evidence.models import ProviderObservation
 from src.evidence.gatherer import DatabaseEvidenceGatherer
@@ -42,7 +44,8 @@ async def run_investigation_pipeline(observation_id: str) -> dict | None:
         # 1. We assume the webhook is a payment webhook with order_id, payment_id etc.
         #    Real razorpay payloads are nested, e.g., payload['payload']['payment']['entity'].
         #    For this spike, we'll try to extract fields safely.
-        payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", payload)
+        payload_dict = cast(Dict[str, Any], payload) if payload else {}
+        payment_entity = payload_dict.get("payload", {}).get("payment", {}).get("entity", payload_dict)
         
         order_id = payment_entity.get("order_id")
         payment_id = payment_entity.get("id") or payment_entity.get("payment_id")

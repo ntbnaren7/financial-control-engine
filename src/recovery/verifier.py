@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional

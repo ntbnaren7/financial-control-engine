@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 import asyncio
 import os
 import sys
@@ -45,13 +46,17 @@ async def main():
                 status="UNPAID"
             )
             obs_proc = ProviderObservation(
-                provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
                 event_id=f"evt_proc_{uuid.uuid4().hex[:8]}",
                 event_type="processing",
                 payload={"order_id": order_id, "payment_id": payment_id, "status": "PROCESSED"}
             )
             obs_pay = ProviderObservation(
-                provider="razorpay",
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
+        provider="razorpay",
                 event_id=f"evt_pay_{uuid.uuid4().hex[:8]}",
                 event_type="payment",
                 payload={"order_id": order_id, "payment_id": payment_id, "status": "captured", "captured": True, "amount": 5000, "currency": "INR"}

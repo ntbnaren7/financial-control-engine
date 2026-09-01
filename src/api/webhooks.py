@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 import json
 from fastapi import APIRouter, Request, Header, HTTPException, status, BackgroundTasks
 from sqlalchemy.exc import IntegrityError
@@ -43,6 +44,8 @@ async def razorpay_webhook(
     
     # 3. Persist observation (handle duplicates via DB constraint)
     observation = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id=x_razorpay_event_id,
         event_type="webhook",

@@ -87,7 +87,7 @@ EVALUATION THROUGHPUT
   Processing time:        0.15 s
   Evaluation throughput:  340.2 records/sec
   Environment:            PostgreSQL (test isolated)
-  LLM:                    deterministic mock (identical to run_golden_e2e.py)
+  LLM:                    deterministic mock (canonical V1 demo runner — to be finalized in the V1 demo phase)
 ══════════════════════════════════════════════════════
 ```
 

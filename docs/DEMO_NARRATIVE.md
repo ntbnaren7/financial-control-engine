@@ -19,7 +19,7 @@ This script is designed for a video presentation or live demo. It traces exactly
 **Speaker:** "The system successfully resolved the actionable discrepancies and cleanly rejected the ones with no safe repair path, like currency mismatches and orphaned payments. It achieved 100% synthetic classification and outcome conformance without a single unauthorized mutation under our tested scenarios. Now, let's zoom in on exactly how it resolved one of those actionable cases."
 
 ## Detection & AI Investigation
-**Action:** *Run the pipeline via CLI (`uv run scripts/run_golden_e2e.py` or equivalent trigger).*
+**Action:** *Run the pipeline via CLI (canonical V1 demo runner — to be finalized in the V1 demo phase).*
 
 **Speaker:** "First, the M3 deterministic engine spots the discrepancy between the provider and the merchant state. It flags a `CAPTURED_PAYMENT_STALE_ORDER`."
 

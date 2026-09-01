@@ -1,0 +1,37 @@
+graph TD
+    %% Styling
+    classDef deterministic fill:#1e40af,stroke:#60a5fa,stroke-width:2px,color:white;
+    classDef untrusted fill:#b91c1c,stroke:#f87171,stroke-width:2px,color:white;
+    classDef database fill:#374151,stroke:#9ca3af,stroke-width:2px,color:white;
+    classDef neutral fill:#4b5563,stroke:#9ca3af,color:white;
+
+    %% Nodes
+    WH([Webhook / Polling]):::neutral
+    DB[(Financial Database)]:::database
+    Prov([Immutable Provenance Log]):::neutral
+
+    subgraph Deterministic Authority Zone
+        M3[M3: Deterministic Detection]:::deterministic
+        Validator[Strict Invariant Validator]:::deterministic
+        Control[Deterministic Control Plane]:::deterministic
+        Action[Atomic Recovery Action]:::deterministic
+        Verify[Independent Verification]:::deterministic
+    end
+
+    subgraph Untrusted AI Zone
+        M4[M4: LLM Investigation Engine]:::untrusted
+    end
+
+    %% Flow
+    WH --> M3
+    M3 -->|Discrepancy Detected| M4
+    
+    M4 -->|JSON Proposal| Validator
+    Validator -->|Admissible Proposal| Control
+    Validator -.->|Invalid/Hallucinated| Reject([Reject: NO_ACTION]):::neutral
+
+    Control -->|Evaluate Preconditions| Action
+    Control -->|Emit| Prov
+    Action -->|UPDATE WHERE status='UNPAID'| DB
+    Action --> Verify
+    Verify -->|Fresh State Read| DB

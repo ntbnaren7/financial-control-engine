@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy import select, or_

@@ -1,11 +1,14 @@
 import pytest
+pytestmark = [pytest.mark.postgres, pytest.mark.legacy]
+
+import pytest
 from datetime import datetime, timezone
-from reconciliation.models import (
+from src.reconciliation.models import (
     ProviderPayment,
     MerchantOrderState,
     DiscrepancyClassification
 )
-from reconciliation.classifier import reconcile_payment_and_order
+from src.reconciliation.classifier import reconcile_payment_and_order
 
 def create_payment(**kwargs) -> ProviderPayment:
     defaults = {

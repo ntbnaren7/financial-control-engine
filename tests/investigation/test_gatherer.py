@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from src.evidence.gatherer import DatabaseEvidenceGatherer
@@ -26,30 +27,40 @@ async def test_gatherer_transformations():
     
     # Fake database rows
     fake_obs_pay = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id="evt_pay_1",
         event_type="payment",
         payload={"order_id": "ord_123", "payment_id": "pay_1", "amount": 5000, "currency": "INR", "status": "captured", "captured": True}
     )
     fake_obs_wh = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id="evt_wh_1",
         event_type="webhook",
         payload={"order_id": "ord_123"}
     )
     fake_obs_proc = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id="evt_proc_1",
         event_type="processing",
         payload={"order_id": "ord_123", "status": "PROCESSED"}
     )
     fake_obs_st = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id="evt_st_1",
         event_type="state_transition",
         payload={"order_id": "ord_123", "from_status": "CREATED", "to_status": "UNPAID"}
     )
     fake_obs_irrelevant = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id="evt_other",
         event_type="webhook",

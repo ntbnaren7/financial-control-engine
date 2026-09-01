@@ -1,5 +1,8 @@
 import pytest
-from integrations.razorpay.client import RazorpayClient
+pytestmark = [pytest.mark.legacy, pytest.mark.provider_mock]
+
+import pytest
+from src.integrations.razorpay.client import RazorpayClient
 
 @pytest.mark.asyncio
 async def test_create_and_get_order():

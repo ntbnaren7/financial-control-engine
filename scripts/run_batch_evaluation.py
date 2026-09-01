@@ -1,3 +1,4 @@
+from src.evidence.models import EntityType
 import asyncio
 import os
 import sys
@@ -126,12 +127,16 @@ async def seed_case(session, case: EvaluationCase) -> str:
         session.add(merchant_ord)
         
     obs_proc = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id=f"evt_proc_{uuid.uuid4().hex[:8]}",
         event_type="processing",
         payload={"order_id": order_id, "payment_id": payment_id, "status": "PROCESSED"}
     )
     obs_pay = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id=f"evt_pay_{uuid.uuid4().hex[:8]}",
         event_type="payment",
@@ -145,6 +150,8 @@ async def seed_case(session, case: EvaluationCase) -> str:
         }
     )
     obs_webhook = ProviderObservation(
+        entity_type=EntityType.PAYMENT.value,
+        entity_id="pay_123",
         provider="razorpay",
         event_id=f"evt_wh_{uuid.uuid4().hex[:8]}",
         event_type="webhook",
@@ -326,7 +333,7 @@ async def run_batch():
     print(f"  Processing time:        {processing_time:.2f} s")
     print(f"  Evaluation throughput:  {(50 / processing_time):.1f} records/sec")
     print(f"  Environment:            PostgreSQL (test isolated)")
-    print(f"  LLM:                    deterministic mock (identical to run_golden_e2e.py)")
+    print(f"  LLM:                    deterministic mock (fixed-seed semantic evaluation without external network calls)")
     print(f"{BOLD}══════════════════════════════════════════════════════{RESET}\n")
 
     # Generate JSON artifact

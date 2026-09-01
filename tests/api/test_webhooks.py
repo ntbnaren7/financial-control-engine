@@ -1,3 +1,7 @@
+from src.evidence.models import EntityType
+import pytest
+pytestmark = [pytest.mark.postgres, pytest.mark.legacy]
+
 import pytest
 import hmac
 import hashlib
@@ -5,10 +9,10 @@ import json
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 
-from api.main import app
-from evidence.db import AsyncSessionLocal
-from evidence.models import ProviderObservation
-from integrations.razorpay.config import settings
+from src.api.main import app
+from src.evidence.db import AsyncSessionLocal
+from src.evidence.models import ProviderObservation
+from src.integrations.razorpay.config import settings
 
 def generate_signature(payload: dict, secret: str) -> str:
     body = json.dumps(payload, separators=(',', ':')).encode('utf-8')

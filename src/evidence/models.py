@@ -3,6 +3,11 @@ from datetime import datetime
 from sqlalchemy import String, DateTime, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from enum import Enum
+
+class EntityType(str, Enum):
+    PAYMENT = "PAYMENT"
+    REFUND_INTENT = "REFUND_INTENT"
 
 class Base(DeclarativeBase):
     pass
@@ -16,6 +21,8 @@ class ProviderObservation(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider: Mapped[str] = mapped_column(String, nullable=False)
     event_id: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False) # Maps to EntityType enum
+    entity_id: Mapped[str] = mapped_column(String, nullable=False)
     event_type: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
