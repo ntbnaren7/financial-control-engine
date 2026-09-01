@@ -15,10 +15,21 @@ MODELS_TO_TEST = [
     "phi4-mini:3.8b-q4_K_M",
     "deepseek-r1:7b",
     "qwen3.5:9b",
+    "qwen3:8b",
     "gemma3:4b"
 ]
 
 TARGET_SCENARIOS = ["SC-03", "SC-06"]
+
+class LoggingInvestigationEngine(InvestigationEngine):
+    def __init__(self, config):
+        super().__init__(config)
+        self.last_result = None
+        
+    async def investigate(self, context, evidence):
+        res = await super().investigate(context, evidence)
+        self.last_result = res
+        return res
 
 async def evaluate_model(model_name: str, gatherer: DatabaseEvidenceGatherer, target_scenarios: list) -> list:
     print(f"\n========================================================")
@@ -31,7 +42,7 @@ async def evaluate_model(model_name: str, gatherer: DatabaseEvidenceGatherer, ta
         api_key="ollama",
         temperature=0.0
     )
-    engine = InvestigationEngine(config)
+    engine = LoggingInvestigationEngine(config)
     results = []
     
     for sc in target_scenarios:
@@ -57,6 +68,13 @@ async def evaluate_model(model_name: str, gatherer: DatabaseEvidenceGatherer, ta
             else:
                 semantic_status = "N/A"
             
+            # Capture raw output and failure details if structurally invalid or semantic conflict
+            failure_details = None
+            raw_output = None
+            if status_val != "ACCEPTED" and engine.last_result:
+                raw_output = engine.last_result.raw_output
+                failure_details = res["failure_reason"]
+            
             results.append({
                 "model": model_name,
                 "scenario": sc.scenario_id,
@@ -64,7 +82,9 @@ async def evaluate_model(model_name: str, gatherer: DatabaseEvidenceGatherer, ta
                 "rationale": res["rationale"],
                 "structural_status": structural_status,
                 "semantic_status": semantic_status,
-                "latency": latency
+                "latency": latency,
+                "raw_output": raw_output,
+                "failure_details": failure_details
             })
         except Exception as e:
             latency = time.time() - start_time
@@ -76,7 +96,9 @@ async def evaluate_model(model_name: str, gatherer: DatabaseEvidenceGatherer, ta
                 "rationale": str(e),
                 "structural_status": "ERROR",
                 "semantic_status": "ERROR",
-                "latency": latency
+                "latency": latency,
+                "raw_output": None,
+                "failure_details": str(e)
             })
             
     await engine.client.close()
@@ -121,6 +143,25 @@ async def main():
             
         print(f"{model_name:<25} | {r['scenario']:<9} | {r['latency']:<7.2f}s | {r['structural_status']:<12} | {r['semantic_status']:<10} | {str(r['top_hypothesis']):<35} | {rationale}")
     print("=" * 160)
+    
+    # Print Failure Details
+    failures = [r for r in all_results if r.get("raw_output") is not None or r.get("failure_details")]
+    if failures:
+        print("\n\n" + "=" * 80)
+        print("VALIDATION FAILURES & RAW OUTPUT DUMP")
+        print("=" * 80)
+        for r in failures:
+            if r["structural_status"] == "PASS" and r["semantic_status"] == "PASS":
+                continue # Skip if both passed
+            print(f"\n[{r['model']}] - {r['scenario']}")
+            print(f"Status: Structural={r['structural_status']}, Semantic={r['semantic_status']}")
+            print(f"Details: {r['failure_details']}")
+            if r.get("raw_output"):
+                print("Raw Output:")
+                print("-" * 40)
+                print(r['raw_output'].strip())
+                print("-" * 40)
+
     
 if __name__ == "__main__":
     asyncio.run(main())

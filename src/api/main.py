@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from api.webhooks import router as webhooks_router
+from src.api.webhooks import router as webhooks_router
 
 app = FastAPI(title="Financial Control Engine")
 

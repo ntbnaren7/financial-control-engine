@@ -55,7 +55,7 @@ async def test_valid_webhook_delivery():
         
         assert obs is not None
         assert obs.provider == "razorpay"
-        assert obs.event_type == "payment.captured"
+        assert obs.event_type == "webhook"
         assert obs.payload == payload
 
 @pytest.mark.asyncio

@@ -1,17 +1,19 @@
 import json
-from fastapi import APIRouter, Request, Header, HTTPException, status
+from fastapi import APIRouter, Request, Header, HTTPException, status, BackgroundTasks
 from sqlalchemy.exc import IntegrityError
 
-from evidence.db import AsyncSessionLocal
-from evidence.models import ProviderObservation
-from integrations.razorpay.config import settings
-from integrations.razorpay.webhook import verify_signature
+from src.evidence.db import AsyncSessionLocal
+from src.evidence.models import ProviderObservation
+from src.integrations.razorpay.config import settings
+from src.integrations.razorpay.webhook import verify_signature
+from src.orchestration.pipeline import run_investigation_pipeline
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 @router.post("/razorpay")
 async def razorpay_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_razorpay_signature: str = Header(None),
     x_razorpay_event_id: str = Header(None)
 ):
@@ -43,7 +45,7 @@ async def razorpay_webhook(
     observation = ProviderObservation(
         provider="razorpay",
         event_id=x_razorpay_event_id,
-        event_type=event_type,
+        event_type="webhook",
         payload=payload_json
     )
     
@@ -53,9 +55,9 @@ async def razorpay_webhook(
             await session.commit()
         except IntegrityError:
             # Duplicate event_id for this provider.
-            # Rollback is automatic on context exit, but we do it explicitly just in case.
             await session.rollback()
-            # Return 200 OK since we've already authenticated and processed this event.
             return {"status": "ok", "message": "duplicate event"}
+            
+    background_tasks.add_task(run_investigation_pipeline, str(observation.id))
             
     return {"status": "ok"}

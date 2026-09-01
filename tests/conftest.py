@@ -16,7 +16,7 @@ else:
 
 def _db_is_available() -> bool:
     """Returns True if the PostgreSQL test database is reachable."""
-    psql_url = test_db_url.replace("+asyncpg", "")
+    psql_url = original_url.replace("+asyncpg", "")
     result = subprocess.run(
         ["psql", psql_url, "-c", "SELECT 1"],
         capture_output=True,

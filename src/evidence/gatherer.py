@@ -46,8 +46,10 @@ class DatabaseEvidenceGatherer(EvidenceGatherer):
             
             relevant_obs: List[ProviderObservation] = []
             for obs in all_observations:
-                order_id = obs.payload.get("order_id")
-                payment_id = obs.payload.get("payment_id")
+                # Handle both flat payloads and nested razorpay webhook payloads
+                payment_entity = obs.payload.get("payload", {}).get("payment", {}).get("entity", obs.payload)
+                order_id = payment_entity.get("order_id")
+                payment_id = payment_entity.get("id") or payment_entity.get("payment_id")
                 
                 # Match against either order_id or payment_id from the verified discrepancy
                 if (discrepancy.order_id and order_id == discrepancy.order_id) or \

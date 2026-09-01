@@ -1,5 +1,10 @@
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
+
+# Add project root to sys.path so 'src' can be imported
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -22,8 +27,8 @@ load_dotenv()
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from evidence.models import Base
-import merchant.models  # Ensure the new models are imported so Base.metadata knows about them
+from src.evidence.models import Base
+import src.merchant.models  # Ensure the new models are imported so Base.metadata knows about them
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
