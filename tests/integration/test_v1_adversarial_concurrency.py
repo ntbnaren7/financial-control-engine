@@ -4,7 +4,7 @@ import threading
 from decimal import Decimal
 from datetime import datetime, timezone
 
-from src.state.models import ReconstructedState, KnowledgeState
+from src.state.models import ReconstructedState, KnowledgeState, ExecutionState
 from src.integrations.provider import ProviderQueryConfidence
 from src.domain.refunds.models import Refund
 from src.control.policy import evaluate_refund_eligibility, ActionDecision
@@ -26,6 +26,7 @@ def test_concurrent_authorization_race():
         entity_id="pay_123",
         observed_financial_state=None,
         knowledge_state=KnowledgeState.VERIFIED,
+        execution=ExecutionState.NOT_EXECUTED,
         observation_ids=("obs_1",),
         reconstructed_at=datetime.now(timezone.utc)
     )

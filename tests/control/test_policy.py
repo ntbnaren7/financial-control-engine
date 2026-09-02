@@ -3,7 +3,7 @@ import pytest
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from src.state.models import ReconstructedState, KnowledgeState, ObservedFinancialState
+from src.state.models import ReconstructedState, KnowledgeState, ObservedFinancialState, ExecutionState
 from src.integrations.provider import ProviderQueryConfidence
 from src.domain.refunds.models import Refund
 from src.control.policy import evaluate_refund_eligibility, ActionDecision
@@ -23,6 +23,7 @@ def test_m4_high_confidence_but_unknown_state_is_rejected():
         entity_id="pay_123",
         observed_financial_state=None,
         knowledge_state=KnowledgeState.UNKNOWN, # Deterministic state is UNKNOWN
+        execution=None,
         observation_ids=("obs_123",),
         reconstructed_at=utcnow()
     )
@@ -54,6 +55,7 @@ def test_concrete_financial_state_rejects_refund():
         entity_id="pay_123",
         observed_financial_state=ObservedFinancialState.PROCESSING,
         knowledge_state=KnowledgeState.VERIFIED,
+        execution=ExecutionState.EXECUTED,
         observation_ids=("obs_123",),
         reconstructed_at=utcnow()
     )
@@ -84,6 +86,7 @@ def test_non_authoritative_query_rejects_refund():
         entity_id="pay_123",
         observed_financial_state=None,
         knowledge_state=KnowledgeState.VERIFIED,
+        execution=ExecutionState.NOT_EXECUTED,
         observation_ids=("obs_123",),
         reconstructed_at=utcnow()
     )

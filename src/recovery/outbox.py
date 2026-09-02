@@ -14,6 +14,12 @@ class OutboxStatus(str, Enum):
     RETRYABLE = "RETRYABLE"
     AMBIGUOUS = "AMBIGUOUS"
 
+class ConcurrencyError(Exception):
+    """
+    Simulates a database IntegrityError for duplicate transactional records.
+    """
+    pass
+
 @dataclass
 class OutboxMessage:
     action: Action
@@ -34,6 +40,21 @@ class TransactionalOutbox:
 
     def publish_action(self, action: Action):
         with self._lock:
+            # Simulates a UNIQUE(action_type, idempotency_key) database constraint.
+            # In V1, this composite key acts as a surrogate for the true business invariant:
+            # UNIQUE(action_type, financial_intent_id). It ensures that at most one
+            # executable action can be committed per refund intent operation.
+            # We enforce this for any action that is currently "executable" to allow retries.
+            for existing_msg in self._messages.values():
+                if (existing_msg.action.action_type == action.action_type and 
+                    existing_msg.action.idempotency_key == action.idempotency_key):
+                    
+                    if existing_msg.status in (OutboxStatus.PENDING, OutboxStatus.PROCESSING, OutboxStatus.DISPATCHED):
+                        raise ConcurrencyError(
+                            f"Concurrent authorization prevented. Executable action {action.action_type} "
+                            f"with idempotency key {action.idempotency_key} already exists."
+                        )
+            
             msg = OutboxMessage(action=action)
             self._messages[msg.message_id] = msg
 

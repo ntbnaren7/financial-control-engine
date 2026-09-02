@@ -25,6 +25,15 @@ class KnowledgeState(str, Enum):
     CONTRADICTED = "CONTRADICTED"  # Two trusted observations are mutually incompatible
 
 
+class ExecutionState(str, Enum):
+    """
+    Whether a specific operational intent (e.g. refund intent) actually executed.
+    Separate from the concrete financial state.
+    """
+    EXECUTED = "EXECUTED"
+    NOT_EXECUTED = "NOT_EXECUTED"
+
+
 @dataclass(frozen=True)
 class ReconstructedState:
     """
@@ -34,5 +43,6 @@ class ReconstructedState:
     entity_id: str
     observed_financial_state: Optional[ObservedFinancialState]
     knowledge_state: KnowledgeState
+    execution: Optional[ExecutionState]
     observation_ids: Tuple[str, ...]  # Which ProviderObservation records produced this
     reconstructed_at: datetime

@@ -1,7 +1,7 @@
 from src.evidence.models import EntityType
 from typing import List, Optional
 from datetime import datetime, timezone
-from src.state.models import ReconstructedState, ObservedFinancialState, KnowledgeState
+from src.state.models import ReconstructedState, ObservedFinancialState, KnowledgeState, ExecutionState
 from src.evidence.models import ProviderObservation, EntityType
 from src.integrations.provider import ProviderQueryConfidence
 from typing import cast, Any, Dict
@@ -16,7 +16,7 @@ class TemporalOrderingPolicy:
     """
     def sort_observations(self, observations: List[ProviderObservation]) -> List[ProviderObservation]:
         def sort_key(obs: ProviderObservation):
-            payload = cast(Dict[str, Any], obs.payload) if obs.payload else {}
+            payload = obs.payload if obs.payload else {}
             # Primary: provider event sequence/version (if available)
             provider_sequence = payload.get("provider_sequence", 0)
             
@@ -35,7 +35,7 @@ class TemporalOrderingPolicy:
                 provider_ts = 0.0
 
             # Tertiary: FCE ingestion timestamp
-            ingestion_time = cast(datetime, obs.created_at).timestamp() if obs.created_at else 0.0
+            ingestion_time = obs.created_at.timestamp() if obs.created_at else 0.0
             
             # Tie-breaker: Deterministic string sorting of observation ID
             return (provider_sequence, provider_ts, ingestion_time, str(obs.id))
@@ -66,6 +66,7 @@ class StateEngine:
                 entity_id=entity_id,
                 observed_financial_state=None,
                 knowledge_state=KnowledgeState.UNKNOWN,
+                execution=None,
                 observation_ids=(),
                 reconstructed_at=reconstructed_at
             )
@@ -75,14 +76,16 @@ class StateEngine:
         
         financial_state: Optional[ObservedFinancialState] = None
         knowledge_state: KnowledgeState = KnowledgeState.UNKNOWN
+        execution: Optional[ExecutionState] = None
         obs_ids = []
         
         seen_concrete = False
         latest_is_not_executed = False
+        latest_is_executed = False
 
         for obs in sorted_obs:
             obs_ids.append(str(obs.id))
-            payload = cast(Dict[str, Any], obs.payload) if obs.payload else {}
+            payload = obs.payload if obs.payload else {}
             
             status = payload.get("status")
             confidence = payload.get("query_confidence")
@@ -91,29 +94,42 @@ class StateEngine:
                 latest_is_not_executed = True
                 financial_state = None
                 knowledge_state = KnowledgeState.VERIFIED
-                if seen_concrete:
+                execution = ExecutionState.NOT_EXECUTED
+                if seen_concrete or latest_is_executed:
                     # Provider says it never happened, but we previously saw it happen
                     knowledge_state = KnowledgeState.CONTRADICTED
+                    execution = None
+            elif confidence == ProviderQueryConfidence.AUTHORITATIVE_EXECUTED.value:
+                latest_is_executed = True
+                financial_state = None
+                knowledge_state = KnowledgeState.VERIFIED
+                execution = ExecutionState.EXECUTED
+                if latest_is_not_executed:
+                    knowledge_state = KnowledgeState.CONTRADICTED
+                    execution = None
             elif status:
                 try:
                     new_state = ObservedFinancialState(status.upper())
                     financial_state = new_state
                     seen_concrete = True
                     latest_is_not_executed = False
+                    latest_is_executed = True  # A concrete status implies execution
                     knowledge_state = KnowledgeState.VERIFIED
+                    execution = ExecutionState.EXECUTED
                 except ValueError:
                     pass
 
         terminal_states = {ObservedFinancialState.CAPTURED.value, ObservedFinancialState.REFUNDED.value, ObservedFinancialState.FAILED.value, ObservedFinancialState.VOIDED.value}
         seen_terminals = set()
         for obs in sorted_obs:
-            payload = cast(Dict[str, Any], obs.payload) if obs.payload else {}
+            payload = obs.payload if obs.payload else {}
             st = payload.get("status")
             if st and st.upper() in terminal_states:
                 seen_terminals.add(st.upper())
                 
         if len(seen_terminals) > 1:
             knowledge_state = KnowledgeState.CONTRADICTED
+            execution = None
             
         # Ensure observation IDs are deterministically ordered (alphabetical sort is fine for just the IDs)
         # However, it's better to preserve the semantic sorted order from the TemporalOrderingPolicy
@@ -123,6 +139,7 @@ class StateEngine:
             entity_id=entity_id,
             observed_financial_state=financial_state,
             knowledge_state=knowledge_state,
+            execution=execution,
             observation_ids=tuple(obs_ids),
             reconstructed_at=reconstructed_at
         )

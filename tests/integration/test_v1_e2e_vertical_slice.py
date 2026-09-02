@@ -8,6 +8,7 @@ from src.evidence.models import ProviderObservation
 from src.state.engine import StateEngine, TemporalOrderingPolicy
 from src.domain.incidents.models import Incident
 from src.control.policy import evaluate_refund_eligibility, ActionDecision
+from src.integrations.provider import ProviderQueryConfidence
 from src.domain.refunds.models import Refund
 from src.domain.actions.models import Action, ActionType
 from src.recovery.registry import ActionRegistry
@@ -65,7 +66,7 @@ def test_full_vertical_slice_to_independent_verification():
     
     decision = evaluate_refund_eligibility(
         reconstructed_state=state_initial,
-        provider_query_confidence=obs_initial.payload["query_confidence"], # mapping mock
+        provider_query_confidence=ProviderQueryConfidence(obs_initial.payload["query_confidence"]),
         refund_intent=refund_intent,
         incident_id=incident.incident_id
     )

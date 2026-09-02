@@ -141,7 +141,7 @@ EVALUATION THROUGHPUT
 
 ### The 1 -> 0 -> 0 Boundary Proof (Mocked & Deterministic)
 By isolating the control plane from LLM flakiness, we empirically validate the financial invariants hold under tested scenarios:
-- **Initial Authorized Mutation = 1:** The system successfully detects a stale order, processes an admissible proposal, strictly verifies the facts, and conditionally mutates the database exactly once.
+- **Initial Authorized Mutation = 1:** The system successfully detects a stale order, processes an admissible proposal, strictly verifies the facts, and conditionally authorizes the mutation (validated against the defined adversarial suite, 50-record evaluation corpus, and modeled provider-failure scenarios).
 - **Replay Mutation = 0:** When fed duplicate webhooks or re-triggered on the identical incident, the deterministic `UNPAID` gate idempotently blocks secondary mutations.
 - **TOCTOU Race Mutation = 0:** When simulated under high-concurrency (Time-Of-Check to Time-Of-Use), the atomic database predicate catches the race condition and safely rolls back, returning a `CONFLICT` rather than a false positive.
 

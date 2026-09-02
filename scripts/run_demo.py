@@ -1,170 +1,184 @@
-from src.evidence.models import EntityType
-import asyncio
+import argparse
+import json
 import os
 import sys
 import uuid
-import json
-from datetime import datetime, timezone
-from sqlalchemy.future import select
+import time
+from decimal import Decimal
 
+# Ensure absolute imports work when running from project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.evidence.db import AsyncSessionLocal, engine
-from src.evidence.models import ProviderObservation
-from src.evidence.gatherer import DatabaseEvidenceGatherer
-from src.merchant.models import MerchantOrder
-from src.reconciliation.engine import M3Engine
-from src.reconciliation.models import ProviderPayment, MerchantOrderState
-from src.investigation.result import InvestigationResult, InvestigationStatus
-from src.investigation.models import InvestigationProposal, HypothesisSelection, ConfidenceBand, InvestigationEligibility, V0HypothesisType
-from src.control.policy import evaluate_repair_eligibility, ActionDecision
-from src.recovery.action import execute_repair_action, ActionStatus
-from src.recovery.verifier import verify_resolution, VerificationStatus
+from src.domain.refunds.models import Refund
+from src.recovery.uncertainty import resolve_refund_uncertainty, RetryPolicy
+from tests.doubles.provider_double import ProviderDouble, E2EProviderAdapter
+from src.domain.actions.models import Action, ActionType
+from src.recovery.outbox import TransactionalOutbox, OutboxDispatcher
 
-# ANSI Colors
-BLUE = "\033[94m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
-CYAN = "\033[96m"
-MAGENTA = "\033[95m"
-BOLD = "\033[1m"
-RESET = "\033[0m"
+class Colors:
+    def __init__(self, use_color: bool):
+        self.BLUE = "\033[94m" if use_color else ""
+        self.GREEN = "\033[92m" if use_color else ""
+        self.YELLOW = "\033[93m" if use_color else ""
+        self.RED = "\033[91m" if use_color else ""
+        self.CYAN = "\033[96m" if use_color else ""
+        self.MAGENTA = "\033[95m" if use_color else ""
+        self.BOLD = "\033[1m" if use_color else ""
+        self.RESET = "\033[0m" if use_color else ""
 
-async def demo_scenario():
-    order_id = f"order_demo_{uuid.uuid4().hex[:8]}"
-    payment_id = f"pay_demo_{uuid.uuid4().hex[:8]}"
-    
-    print(f"\n{BOLD}{CYAN}=== DEMONSTRATION: AUTONOMOUS FINANCIAL REPAIR ==={RESET}\n")
-
-    # 1. SETUP
-    print(f"{YELLOW}[RECEIVED]{RESET} Razorpay says ₹5,000 was captured.")
-    print(f"{YELLOW}[PERSISTED]{RESET} Merchant's order still says unpaid.\n")
-    
-    async with AsyncSessionLocal() as session:
-        merchant_ord = MerchantOrder(
-            merchant_order_id=f"mo_{order_id}",
-            razorpay_order_id=order_id,
-            expected_amount=5000,
-            currency="INR",
-            status="UNPAID"
-        )
-        obs_proc = ProviderObservation(
-        entity_type=EntityType.PAYMENT.value,
-        entity_id="pay_123",
-        provider="razorpay",
-            event_id=f"evt_proc_{uuid.uuid4().hex[:8]}",
-            event_type="processing",
-            payload={"order_id": order_id, "payment_id": payment_id, "status": "PROCESSED"}
-        )
-        obs_pay = ProviderObservation(
-        entity_type=EntityType.PAYMENT.value,
-        entity_id="pay_123",
-        provider="razorpay",
-            event_id=f"evt_pay_{uuid.uuid4().hex[:8]}",
-            event_type="payment",
-            payload={"order_id": order_id, "payment_id": payment_id, "status": "captured", "captured": True, "amount": 5000, "currency": "INR"}
-        )
-        session.add(merchant_ord)
-        session.add(obs_proc)
-        session.add(obs_pay)
-        await session.commit()
-        await session.refresh(merchant_ord)
-        mo_id = str(merchant_ord.id)
-
-    # 2. DISCREPANCY DETECTED
-    m3 = M3Engine()
-    payment = ProviderPayment(
-        payment_id=payment_id, order_id=order_id, amount=5000, currency="INR",
-        status="captured", captured=True, observed_at=datetime.now(timezone.utc)
+def generate_refund() -> Refund:
+    return Refund(
+        refund_intent_id=f"ref_{uuid.uuid4().hex[:8]}",
+        provider_payment_id=f"pay_{uuid.uuid4().hex[:8]}",
+        amount=Decimal('100.00'),
+        currency="USD"
     )
-    merchant_state = MerchantOrderState(
-        merchant_order_id=merchant_ord.merchant_order_id, razorpay_order_id=order_id,
-        expected_amount=5000, currency="INR", status="UNPAID"
+
+def print_layer_header(title: str, colors: Colors):
+    print(f"\n{colors.BOLD}{colors.CYAN}=== {title} ==={colors.RESET}\n")
+
+def print_trace_structure(provider_text: str, fce_knowledge_text: str, control_text: str, colors: Colors):
+    print(f"{colors.BOLD}WHAT ACTUALLY HAPPENED{colors.RESET}")
+    print(f"{colors.YELLOW}PROVIDER:{colors.RESET} {provider_text}\n")
+    
+    print(f"{colors.BOLD}WHAT FCE CAN PROVE{colors.RESET}")
+    print(f"{colors.BLUE}FCE KNOWLEDGE:{colors.RESET} {fce_knowledge_text}\n")
+    
+    print(f"{colors.BOLD}WHAT FCE IS ALLOWED TO DO{colors.RESET}")
+    print(f"{colors.GREEN}CONTROL:{colors.RESET} {control_text}\n")
+    print("-" * 60)
+
+def run_layer_1(colors: Colors):
+    print_layer_header("LAYER 1: BATCH EVALUATION ARTIFACT", colors)
+    
+    eval_file = os.path.join(os.path.dirname(__file__), "..", "artifacts", "v1_evaluation.json")
+    if not os.path.exists(eval_file):
+        print(f"{colors.RED}Error: {eval_file} not found.{colors.RESET}")
+        print("Run `python scripts/run_batch_evaluation.py` first.")
+        return
+
+    with open(eval_file, 'r') as f:
+        data = json.load(f)
+
+    meta = data["run_metadata"]
+    batch = data["batch_summary"]
+    oracle = data["oracle_metrics"]
+    safety = data["safety_metrics"]
+
+    print(f"{colors.BOLD}{meta['records_processed']} records processed{colors.RESET}")
+    print(f"{colors.BOLD}{batch['match_rate'] * 100:.1f}% initial match rate{colors.RESET}")
+    print(f"{colors.BOLD}{batch['total_exceptions']} exceptions{colors.RESET}")
+    print(f"{colors.BOLD}{batch['resolved_exceptions']} resolved{colors.RESET}")
+    print(f"{colors.BOLD}{batch['unresolved_exceptions']} unresolved{colors.RESET}")
+    print()
+    print(f"{colors.BOLD}Oracle conformance: {oracle['oracle_conformant_records']}/{oracle['evaluable_records']} evaluable ({oracle['oracle_conformance_rate'] * 100:.0f}%){colors.RESET}")
+    print(f"{colors.BOLD}{oracle['oracle_unavailable']}/{meta['records_processed']} oracle-unavailable{colors.RESET}")
+    print()
+    print(f"{colors.BOLD}{safety['safety_violations']} safety violations{colors.RESET}")
+    print(f"{colors.BOLD}{safety['duplicate_financial_effects']} duplicate financial effects{colors.RESET}")
+    print("-" * 60)
+
+def run_layer_2(colors: Colors):
+    print_layer_header("LAYER 2: LIVE DETERMINISTIC TRACES", colors)
+    
+    default_policy = RetryPolicy(max_attempts=3, provider_key_valid=True)
+    
+    # TRACE A
+    print(f"{colors.BOLD}{colors.MAGENTA}Trace A — Executed but uncertain{colors.RESET}\n")
+    double_a = ProviderDouble()
+    adapter_a = E2EProviderAdapter(double_a)
+    refund_a = generate_refund()
+    key_a = refund_a.get_provider_idempotency_key()
+    
+    # Model: dispatched -> response lost -> but provider ACTUALLY executed it
+    # Easiest way to simulate without full runner is to manually add it to double's history
+    # which will then be found by query
+    action_a = Action(action_type=ActionType.CONTROLLED_REFUND, incident_id=refund_a.refund_intent_id, idempotency_key=key_a)
+    adapter_a.dispatch_action(action_a)
+    adapter_a.observations.clear() # FCE lost the response
+    
+    outcome_a, _ = resolve_refund_uncertainty(refund_a, [], adapter_a, default_policy)
+    
+    exec_str_a = outcome_a.reconstructed_state.execution.value if outcome_a.reconstructed_state.execution else "None"
+    
+    print_trace_structure(
+        "refund dispatched → response lost (simulated)",
+        f"UNKNOWN → provider query → AUTHORITATIVE_EXECUTED → {outcome_a.reconstructed_state.knowledge_state.value} / {exec_str_a}",
+        outcome_a.status.value,
+        colors
     )
-    discrepancy = m3.evaluate_reconciliation(payment, merchant_state)
-    assert discrepancy is not None, "M3 expected to find discrepancy"
     
-    print(f"{RED}[DISCREPANCY_DETECTED]{RESET} Financial Control Engine detects a discrepancy: {BOLD}{discrepancy.description}{RESET}\n")
-
-    # 3. EVIDENCE BOUND
-    gatherer = DatabaseEvidenceGatherer(AsyncSessionLocal)
-    evidence_packet = await gatherer.gather(discrepancy)
-    print(f"{BLUE}[EVIDENCE_BOUND]{RESET} Engine gathered bounded evidence: {len(evidence_packet.items)} verifiable facts.\n")
-
-    # 4. INVESTIGATION
-    mock_selections = [
-        HypothesisSelection(hypothesis_id=V0HypothesisType.WEBHOOK_PROCESSED_STATE_NOT_UPDATED, rank=1, rationale="Webhook processing state is missing.", confidence_band=ConfidenceBand.HIGH),
-        HypothesisSelection(hypothesis_id=V0HypothesisType.EVIDENCE_INSUFFICIENT, rank=2, rationale="", confidence_band=ConfidenceBand.LOW),
-        HypothesisSelection(hypothesis_id=V0HypothesisType.WEBHOOK_NOT_OBSERVED, rank=3, rationale="", confidence_band=ConfidenceBand.LOW),
-        HypothesisSelection(hypothesis_id=V0HypothesisType.WEBHOOK_OBSERVED_NOT_PROCESSED, rank=4, rationale="", confidence_band=ConfidenceBand.LOW),
-        HypothesisSelection(hypothesis_id=V0HypothesisType.PROVIDER_MERCHANT_STATE_REPRESENTATION_MISMATCH, rank=5, rationale="", confidence_band=ConfidenceBand.LOW),
-    ]
-    mock_proposal = InvestigationProposal(eligibility=InvestigationEligibility.ELIGIBLE, overall_confidence=ConfidenceBand.HIGH, selections=mock_selections)
-    result = InvestigationResult(status=InvestigationStatus.ACCEPTED, proposal=mock_proposal)
-    assert result.proposal is not None
+    # TRACE B
+    print(f"{colors.BOLD}{colors.MAGENTA}Trace B — Safe recovery{colors.RESET}\n")
+    double_b = ProviderDouble()
+    adapter_b = E2EProviderAdapter(double_b)
+    outbox_b = TransactionalOutbox()
+    dispatcher_b = OutboxDispatcher(outbox_b, adapter_b)
     
-    print(f"{MAGENTA}[INVESTIGATION_COMPLETED]{RESET} AI investigates but cannot authorize anything.")
-    print(f"\n{BOLD}M4 — Investigation{RESET}")
-    print(f"`Hypothesis: {result.proposal.selections[0].hypothesis_id.value}`")
-    print("      ↓")
-
-    # 5. CONTROL APPROVED
-    async with AsyncSessionLocal() as session:
-        db_res = await session.execute(select(MerchantOrder).where(MerchantOrder.razorpay_order_id == order_id))
-        real_merchant_order = db_res.scalar_one()
-
-    control_decision = evaluate_repair_eligibility(discrepancy, result, evidence_packet.items, real_merchant_order)
+    refund_b = generate_refund()
+    key_b = refund_b.get_provider_idempotency_key()
     
-    print(f"{BOLD}Deterministic Control{RESET}")
-    # Extract evidence strings based on control logic
-    payment_captured = any(ev.type.value == "E_PROVIDER_PAYMENT" and ev.content.captured for ev in evidence_packet.items)
-    transition_coverage = any(ev.type.value == "E_STATE_TRANSITION_COVERAGE" and ev.content.coverage.value == "COMPLETE" for ev in evidence_packet.items)
-    merchant_unpaid = (real_merchant_order.status == "UNPAID")
-    admissible = True
+    # Model: dispatched -> ambiguous -> provider did NOT execute it
+    double_b.configure_ambiguous(key_b)
+    action_b = Action(action_type=ActionType.CONTROLLED_REFUND, incident_id=refund_b.refund_intent_id, idempotency_key=key_b)
+    outbox_b.publish_action(action_b)
+    dispatcher_b.process_pending()
+    adapter_b.observations.clear() # Ensure clean state for query
     
-    print(f"`Evidence authoritative: {'✓' if payment_captured else '✗'}`")
-    print(f"`Transition coverage complete: {'✓' if transition_coverage else '✗'}`")
-    print(f"`Merchant currently UNPAID: {'✓' if merchant_unpaid else '✗'}`")
-    print(f"`Semantic validation: ADMISSIBLE {'✓' if admissible else '✗'}`")
+    outcome_b, _ = resolve_refund_uncertainty(refund_b, [], adapter_b, default_policy)
     
-    print("      ↓")
-    print(f"{GREEN}[CONTROL_APPROVED]{RESET} Independent verification passed deterministic bounds.\n")
-    print("      ↓")
-
-    # 6. REPAIR EXECUTED
-    print(f"{BOLD}Recovery{RESET}")
-    print("`UPDATE merchant_orders SET status = 'PAID' WHERE id = ? AND status = 'UNPAID'`")
-    async with AsyncSessionLocal() as session:
-        action_res = await execute_repair_action(session, mo_id, "UNPAID", "PAID")
-    print("      ↓")
-    print(f"{GREEN}[REPAIR_EXECUTED]{RESET} Atomic mutation applied.\n")
-    print("      ↓")
-
-    # 7. VERIFICATION PASSED
-    print(f"{BOLD}Independent Verification{RESET}")
-    async with AsyncSessionLocal() as session:
-        verify_res = await verify_resolution(session, mo_id, payment_id)
+    # Authorize retry and commit to outbox
+    if outcome_b.status.value == "AUTHORIZED_RETRY":
+        retry_action = Action(
+            action_type=ActionType.CONTROLLED_REFUND,
+            incident_id=refund_b.refund_intent_id,
+            idempotency_key=key_b
+        )
+        double_b._force_ambiguous_keys.remove(key_b) # Recovery attempt should succeed
+        outbox_b.publish_action(retry_action)
+        dispatcher_b.process_pending()
         
-    print(f"`Provider: CAPTURED ✓`")
-    print(f"`Merchant: PAID ✓`")
-    print("      ↓")
-    print(f"{GREEN}[VERIFICATION_PASSED]{RESET} Fresh read confirms resolution.\n")
+    effects_b = double_b.get_financial_effect_count(refund_b.refund_intent_id)
     
-    print(f"{BOLD}{GREEN}[RESOLVED]{RESET}\n")
-
-    print(f"{BOLD}{CYAN}=== IDEMPOTENCY CHECK ==={RESET}")
-    print("Replaying the exact same webhook event...\n")
+    exec_str_b = outcome_b.reconstructed_state.execution.value if outcome_b.reconstructed_state.execution else "None"
     
-    # 8. IDEMPOTENCY REPLAY
-    merchant_state_post = MerchantOrderState(
-        merchant_order_id=merchant_ord.merchant_order_id, razorpay_order_id=order_id,
-        expected_amount=5000, currency="INR", status="PAID"
+    print_trace_structure(
+        "refund dispatched → ambiguous → actual effect NOT_EXECUTED",
+        f"UNKNOWN → authoritative NOT_EXECUTED → {outcome_b.reconstructed_state.knowledge_state.value} / {exec_str_b}",
+        f"{outcome_b.status.value} → same intent [{refund_b.refund_intent_id}] / key [{key_b[:8]}...] → outbox → provider → {effects_b} financial effect",
+        colors
     )
-    discrepancy_retry = m3.evaluate_reconciliation(payment, merchant_state_post)
-    if not discrepancy_retry:
-        print(f"{GREEN}✓ M3: NO DISCREPANCY DETECTED{RESET}")
-        print(f"{GREEN}[NO_ACTION]{RESET} System gracefully handles the duplicate without invoking AI or mutating state.\n")
+
+    # TRACE C
+    print(f"{colors.BOLD}{colors.MAGENTA}Trace C — Insufficient evidence{colors.RESET}\n")
+    double_c = ProviderDouble()
+    adapter_c = E2EProviderAdapter(double_c)
+    
+    refund_c = generate_refund()
+    key_c = refund_c.get_provider_idempotency_key()
+    
+    # Model: ambiguous -> non-authoritative/failed query
+    double_c.configure_query_failure(key_c)
+    
+    outcome_c, _ = resolve_refund_uncertainty(refund_c, [], adapter_c, default_policy)
+    
+    print_trace_structure(
+        "refund dispatched → ambiguous → network partition / provider API 500",
+        f"UNKNOWN → non-authoritative / failed query → {outcome_c.reconstructed_state.knowledge_state.value}",
+        f"{outcome_c.status.value}\n{colors.RED}{colors.BOLD}No financial action authorized.{colors.RESET}",
+        colors
+    )
+
+def main():
+    parser = argparse.ArgumentParser(description="V1 Financial Control Engine Demo")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI terminal colors")
+    args = parser.parse_args()
+
+    colors = Colors(use_color=not args.no_color)
+    
+    run_layer_1(colors)
+    time.sleep(1) # Slight dramatic pause between layers
+    run_layer_2(colors)
 
 if __name__ == "__main__":
-    asyncio.run(demo_scenario())
+    main()

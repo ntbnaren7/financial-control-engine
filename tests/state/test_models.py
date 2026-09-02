@@ -1,7 +1,7 @@
 from src.evidence.models import EntityType
 import pytest
 from datetime import datetime, timezone
-from src.state.models import ObservedFinancialState, KnowledgeState, ReconstructedState
+from src.state.models import ObservedFinancialState, KnowledgeState, ReconstructedState, ExecutionState
 
 def test_observed_financial_state_has_no_unknown():
     """
@@ -40,6 +40,7 @@ def test_reconstructed_state_instantiation_with_none():
         entity_id="pay_123",
         observed_financial_state=None,
         knowledge_state=KnowledgeState.UNKNOWN,
+        execution=None,
         observation_ids=("obs_123",),
         reconstructed_at=now
     )
@@ -57,6 +58,7 @@ def test_reconstructed_state_frozen():
         entity_id="pay_123",
         observed_financial_state=ObservedFinancialState.CAPTURED,
         knowledge_state=KnowledgeState.VERIFIED,
+        execution=ExecutionState.EXECUTED,
         observation_ids=("obs_123",),
         reconstructed_at=datetime.now(timezone.utc)
     )

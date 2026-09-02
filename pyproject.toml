@@ -5,17 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "alembic>=1.19.1",
-    "asyncpg>=0.31.0",
-    "fastapi>=0.141.1",
-    "greenlet>=3.5.5",
     "httpx",
-    "openai>=3.6.0",
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
-    "sqlalchemy>=2.0.52",
-    "uvicorn>=0.52.4",
 ]
 
 [dependency-groups]
