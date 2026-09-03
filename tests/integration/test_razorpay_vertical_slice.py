@@ -9,7 +9,7 @@ from src.integrations.razorpay.adapter import RazorpayProviderAdapter
 from src.domain.refunds.models import Refund
 from src.domain.actions.models import Action, ActionType
 from src.recovery.outbox import TransactionalOutbox, OutboxDispatcher, OutboxStatus
-from src.recovery.uncertainty import resolve_refund_uncertainty, RetryPolicy, ResolutionStatus
+
 from src.state.engine import StateEngine, TemporalOrderingPolicy
 from src.evidence.models import ProviderObservation, EntityType
 from src.integrations.provider import ProviderMutationOutcome, ProviderQueryConfidence
