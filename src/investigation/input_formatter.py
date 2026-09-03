@@ -29,6 +29,7 @@ from typing import Any, Dict, List
 from src.domain.cases.models import ReconciliationCase
 from src.domain.correlation.models import CorrelationStatus
 from src.domain.investigation.models import VerificationIntent
+from src.domain.investigation.context import InvestigationContext
 
 # The complete, hardcoded Phase D capability allowlist forwarded to the agent.
 # This list is injected by the formatter; it never originates from LLM output.
@@ -119,5 +120,65 @@ def format_case_for_investigation(case: ReconciliationCase) -> Dict[str, Any]:
         "expected_refund":              expected_refund,
         "correlated_observations":      correlated_observations,
         "unmatched_observations":       unmatched_observations,
+        "permitted_verification_intents": _PERMITTED_INTENTS,
+    }
+
+
+def format_context_for_investigation(context: InvestigationContext) -> Dict[str, Any]:
+    """
+    Produce the bounded agent-input dict for V2 InvestigationContext.
+
+    The returned dict contains only the fields the LLM is permitted to see.
+    Raw payloads, internal database IDs, provider credentials, and any field
+    not explicitly listed below are excluded.
+    """
+    
+    # ── Expectation ──────────────────────────────────────────────────────────
+    expected_state_dict: Dict[str, Any] | None = None
+    if context.expectation is not None:
+        exp = context.expectation
+        expected_state_dict = {
+            "domain":             exp.domain,
+            "expected_state":     exp.expected_state,
+            "amount":             str(exp.expected_amount),
+            "currency":           exp.currency,
+            "source_system":      exp.source_system,
+            "created_at":         exp.created_at.isoformat() if exp.created_at else None,
+        }
+
+    # ── Observations ─────────────────────────────────────────────────────────
+    observations_list: List[Dict[str, Any]] = []
+    for obs in context.observations:
+        observations_list.append({
+            "observation_id":     obs.observation_id,
+            "provider":           obs.provider,
+            "observation_type":   obs.observation_type,
+            "observed_state":     obs.observed_state,
+            "amount":             str(obs.observed_amount),
+            "currency":           obs.currency,
+            "evidence_ids":       obs.evidence_ids,
+            "observed_at":        obs.observed_at.isoformat() if obs.observed_at else None,
+        })
+
+    # ── Evidence ─────────────────────────────────────────────────────────────
+    evidence_list: List[Dict[str, Any]] = []
+    for ev in context.evidence_records:
+        evidence_list.append({
+            "evidence_id":        ev.evidence_id,
+            "source":             ev.source,
+            "observed_at":        ev.observed_at.isoformat() if ev.observed_at else None,
+        })
+
+    # ── Discrepancy Reason ───────────────────────────────────────────────────
+    discrepancy_reason = None
+    if context.active_discrepancy and context.active_discrepancy.discrepancy_reason:
+        discrepancy_reason = context.active_discrepancy.discrepancy_reason.value
+
+    return {
+        "context_id":                     context.context_id,
+        "discrepancy_reason":             discrepancy_reason,
+        "expectation":                    expected_state_dict,
+        "observations":                   observations_list,
+        "evidence_records":               evidence_list,
         "permitted_verification_intents": _PERMITTED_INTENTS,
     }

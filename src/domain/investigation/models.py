@@ -18,9 +18,12 @@ Authority chain reminder:
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, ForwardRef
+from datetime import datetime, timezone
+import uuid
 
 from pydantic import BaseModel, field_validator, model_validator
+from src.domain.core.models import Observation, Evidence
 
 
 # ---------------------------------------------------------------------------
@@ -30,13 +33,13 @@ from pydantic import BaseModel, field_validator, model_validator
 class VerificationIntent(str, Enum):
     """
     The complete, hardcoded set of read-only provider queries the verifier
-    is permitted to execute.  The LLM selects a name from this list; it
+    is permitted to execute.  The LLM selects names from this list; it
     never supplies query parameters.  Parameters are derived exclusively from
-    the trusted ReconciliationCase by the Deterministic Verifier.
+    the trusted InvestigationContext by the Deterministic Verifier.
     """
-    QUERY_PROVIDER_REFUND  = "QUERY_PROVIDER_REFUND"
-    QUERY_PROVIDER_PAYMENT = "QUERY_PROVIDER_PAYMENT"
-    QUERY_REFUND_EVENTS    = "QUERY_REFUND_EVENTS"
+    QUERY_PROVIDER_STATE       = "QUERY_PROVIDER_STATE"
+    QUERY_PROVIDER_TRANSACTION = "QUERY_PROVIDER_TRANSACTION"
+    COMPARE_SETTLEMENT_RECORD  = "COMPARE_SETTLEMENT_RECORD"
 
 
 # ---------------------------------------------------------------------------
@@ -78,12 +81,13 @@ class CausalHypothesis(BaseModel):
         deterministic evidence confirms or contradicts the hypothesis.
     """
 
-    hypothesis: str
+    hypothesis_id: str
+    """Unique identifier for this specific hypothesis claim."""
+
+    claim: str
     """
     Concise, falsifiable explanation of why the discrepancy may have
-    occurred.  Example:
-        "Provider execution likely occurred but the webhook arrived outside
-         the permitted correlation window."
+    occurred.
     """
 
     supporting_evidence_ids: List[str]
@@ -99,11 +103,10 @@ class CausalHypothesis(BaseModel):
     hypothesis.  Same validation rules as supporting_evidence_ids.
     """
 
-    missing_evidence_description: str
+    missing_evidence: str
     """
     Human-readable description of the evidence that would discriminate
-    between the hypothesis and competing explanations.  Example:
-        "Authoritative provider refund status lookup via API."
+    between the hypothesis and competing explanations.
     """
 
     confidence: Literal["LOW", "MEDIUM", "HIGH"]
@@ -118,10 +121,10 @@ class CausalHypothesis(BaseModel):
     exhausted.
     """
 
-    verification_intent: Optional[VerificationIntent] = None
+    verification_intents: List[VerificationIntent]
     """
     Required when disposition == VERIFICATION_PROPOSED.
-    Must be None when disposition == INVESTIGATION_EXHAUSTED.
+    Must be empty when disposition == INVESTIGATION_EXHAUSTED.
     Allowlist-validated by OutputValidator before reaching the Verifier.
     """
 
@@ -129,23 +132,23 @@ class CausalHypothesis(BaseModel):
     def _intent_consistent_with_disposition(self) -> "CausalHypothesis":
         if (
             self.disposition == InvestigationDisposition.VERIFICATION_PROPOSED
-            and self.verification_intent is None
+            and not self.verification_intents
         ):
             raise ValueError(
-                "verification_intent is required when disposition is "
+                "verification_intents is required when disposition is "
                 "VERIFICATION_PROPOSED"
             )
         if (
             self.disposition == InvestigationDisposition.INVESTIGATION_EXHAUSTED
-            and self.verification_intent is not None
+            and self.verification_intents
         ):
             raise ValueError(
-                "verification_intent must be None when disposition is "
+                "verification_intents must be empty when disposition is "
                 "INVESTIGATION_EXHAUSTED"
             )
         return self
 
-    @field_validator("hypothesis", "missing_evidence_description", mode="before")
+    @field_validator("claim", "missing_evidence", mode="before")
     @classmethod
     def _non_empty_string(cls, v: str) -> str:
         if not isinstance(v, str) or not v.strip():
@@ -186,8 +189,31 @@ class ValidationRejection(BaseModel):
 
 class VerificationRejectionReason(str, Enum):
     """Reason codes emitted by the Deterministic Verifier on rejection."""
-    EXHAUSTED      = "EXHAUSTED"       # disposition == INVESTIGATION_EXHAUSTED
-    PROVIDER_ERROR = "PROVIDER_ERROR"  # read-only query failed at provider
+    EXHAUSTED          = "EXHAUSTED"          # disposition == INVESTIGATION_EXHAUSTED
+    PROVIDER_ERROR     = "PROVIDER_ERROR"     # read-only query failed at provider
+    MISSING_PARAMETERS = "MISSING_PARAMETERS" # lack of trusted parameters to execute intent
+
+
+class VerificationStatus(str, Enum):
+    SUCCEEDED = "SUCCEEDED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
+
+
+class VerificationResult(BaseModel):
+    """
+    Structured outcome of a verification attempt.
+    This replaces raw lists of Evidence, cleanly distinguishing between
+    what happened during verification vs what was observed.
+    """
+    verification_id: str
+    intent: VerificationIntent
+    status: VerificationStatus
+    evidence_ids: List[str]
+    new_evidence: List[Evidence] = []
+    new_observations: List[Observation] = []
+    failure_reason: Optional[str] = None
+    verified_at: datetime
 
 
 class VerificationRejection(BaseModel):

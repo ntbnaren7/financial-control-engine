@@ -19,10 +19,13 @@ from tests.doubles.razorpay_mock_transport import RazorpayMockTransport
 def mock_transport():
     return RazorpayMockTransport()
 
+from src.config.settings import RazorpaySettings
+
 @pytest.fixture
 def razorpay_client(mock_transport):
     http_client = httpx.AsyncClient(transport=mock_transport, base_url="https://api.razorpay.com/v1")
-    return RazorpayClient(client=http_client)
+    settings = RazorpaySettings(key_id="test_key", key_secret="test_secret")
+    return RazorpayClient(settings=settings, client=http_client)
 
 @pytest.fixture
 def adapter(razorpay_client):
@@ -51,9 +54,10 @@ async def test_razorpay_vertical_slice_case_A_ambiguous_executed(mock_transport,
         incident_id=refund_intent.refund_intent_id
     )
     
-    # 1. Dispatch fails with AMBIGUOUS
-    outcome = await adapter.dispatch_refund(action, refund_intent)
-    assert outcome == ProviderMutationOutcome.AMBIGUOUS_OUTCOME
+    # 1. Dispatch fails with ProviderNetworkError
+    from src.integrations.razorpay.client import ProviderNetworkError
+    with pytest.raises(ProviderNetworkError):
+        await adapter.dispatch_refund(action, refund_intent)
     
     # 2. Query confirms it executed
     confidence = await adapter.query_refund_status(
@@ -94,9 +98,10 @@ async def test_razorpay_adapter_case_B_ambiguous_not_executed(mock_transport, ad
         incident_id=refund_intent.refund_intent_id
     )
     
-    # Dispatch fails with AMBIGUOUS (504)
-    outcome = await adapter.dispatch_refund(action, refund_intent)
-    assert outcome == ProviderMutationOutcome.AMBIGUOUS_OUTCOME
+    # Dispatch fails with ProviderNetworkError (504)
+    from src.integrations.razorpay.client import ProviderNetworkError
+    with pytest.raises(ProviderNetworkError):
+        await adapter.dispatch_refund(action, refund_intent)
     assert len(mock_transport.refunds) == 0
     
     # Query confirms NOT EXECUTED
@@ -116,9 +121,10 @@ async def test_razorpay_adapter_case_C_query_fails(mock_transport, adapter, refu
         incident_id=refund_intent.refund_intent_id
     )
     
-    confidence = await adapter.query_refund_status(
-        payment_id="pay_123", 
-        idempotency_key=action.idempotency_key, 
-        receipt=refund_intent.refund_intent_id
-    )
-    assert confidence == ProviderQueryConfidence.QUERY_FAILED
+    from src.integrations.razorpay.client import ProviderNetworkError
+    with pytest.raises(ProviderNetworkError):
+        await adapter.query_refund_status(
+            payment_id="pay_123", 
+            idempotency_key=action.idempotency_key, 
+            receipt=refund_intent.refund_intent_id
+        )

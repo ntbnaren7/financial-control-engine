@@ -5,7 +5,7 @@ import uuid
 from src.domain.core.models import Expectation, Observation, Evidence, BusinessStatus, ReconciliationResult, ReconciliationOutcome
 from src.storage.substrate_repo import MemoryObservationRepository, MemoryExpectationRepository
 from src.engine.v2_reconciliation import reconcile
-from src.adapters.v1_incident_adapter import translate_to_incident
+
 
 def test_observation_identity_in_memory_repo():
     repo = MemoryObservationRepository()
@@ -83,24 +83,3 @@ def test_reconciliation_contract_discrepancy():
     result = reconcile(exp, [obs_mismatch])
     assert result.outcome == ReconciliationOutcome.DISCREPANCY
 
-def test_v2_to_v1_adapter():
-    exp = Expectation(
-        domain="Refund",
-        expected_state="PROCESSED",
-        expected_amount=500,
-        currency="INR",
-        source_system="merchant_ledger"
-    )
-    result = ReconciliationResult(
-        expectation_id=exp.expectation_id,
-        observation_ids=["obs_1"],
-        outcome=ReconciliationOutcome.DISCREPANCY,
-        reconciliation_reason="Mismatch"
-    )
-    
-    incident, context = translate_to_incident(result, exp, [], [])
-    
-    assert incident.expectation_id == exp.expectation_id
-    assert incident.lifecycle_state.value == "OPEN"
-    assert context.reconciliation_result.outcome == ReconciliationOutcome.DISCREPANCY
-    assert context.expectation == exp

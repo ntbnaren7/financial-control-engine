@@ -15,6 +15,23 @@ class ReconciliationOutcome(str, Enum):
     MATCH = "MATCH"
     DISCREPANCY = "DISCREPANCY"
 
+class DiscrepancyReason(str, Enum):
+    ABSENT_EXECUTION = "ABSENT_EXECUTION"
+    AMOUNT_MISMATCH = "AMOUNT_MISMATCH"
+    STATE_MISMATCH = "STATE_MISMATCH"
+    DUPLICATE_EXECUTION = "DUPLICATE_EXECUTION"
+    UNEXPECTED_EXECUTION = "UNEXPECTED_EXECUTION"
+    SLA_BREACH = "SLA_BREACH"
+
+@dataclass(frozen=True)
+class CorrelationKeys:
+    """Flexible correlation keys supporting partial knowledge."""
+    internal_ref: Optional[str] = None
+    provider_ref: Optional[str] = None
+    provider: Optional[str] = None
+    domain: Optional[str] = None
+    observation_type: Optional[str] = None
+
 @dataclass
 class Expectation:
     """Internal financial intent or expected state."""
@@ -23,6 +40,7 @@ class Expectation:
     expected_amount: int
     currency: str
     source_system: str
+    correlation_keys: CorrelationKeys = field(default_factory=CorrelationKeys)
     expectation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     business_status: BusinessStatus = BusinessStatus.CREATED
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -48,6 +66,7 @@ class Observation:
     observed_amount: int
     currency: str
     evidence_ids: List[str]
+    correlation_keys: CorrelationKeys = field(default_factory=CorrelationKeys)
     # Instance Identity fields
     provider_event_id: Optional[str] = None
     provider_version: Optional[str] = None
@@ -60,9 +79,10 @@ class Observation:
 @dataclass(frozen=True)
 class ReconciliationResult:
     """Deterministic, immutable result of comparing an expectation against candidate observations."""
-    expectation_id: str
+    expectation_id: Optional[str]
     observation_ids: List[str]
     outcome: ReconciliationOutcome
     reconciliation_reason: str
+    discrepancy_reason: Optional[DiscrepancyReason] = None
     reconciliation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

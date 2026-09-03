@@ -1,170 +1,128 @@
 """
-D5 — Deterministic Verifier
+D5 — Deterministic Verifier (V2)
 
 Responsibility: Execute read-only provider queries based on the LLM's validated
-verification intent.
+verification intents and return a structured VerificationResult containing the 
+new Evidence and Normalized Observations.
 
 Strict invariants:
-  1. Input: CausalHypothesis + trusted ReconciliationCase.
-  2. Query parameters are derived 100% from the ReconciliationCase.
+  1. Input: CausalHypothesis + trusted InvestigationContext.
+  2. Query parameters are derived 100% from the InvestigationContext.
   3. The LLM's text/IDs CANNOT influence the query parameters.
   4. Only read-only provider calls are executed.
-  5. Provider responses pass through Phase C normalization.
+  5. Provider routing is explicit via correlation_keys.provider.
   6. No financial classification or mutation occurs here.
 """
 
-from typing import List, Union
+from typing import List, Dict
+import uuid
+from datetime import datetime, timezone
 
-import httpx
-
-from src.domain.cases.models import ReconciliationCase
-from src.domain.evidence.normalization import RazorpayApiNormalizer
+from src.domain.investigation.context import InvestigationContext
 from src.domain.investigation.models import (
     CausalHypothesis,
     InvestigationDisposition,
-    VerificationIntent,
-    VerificationRejection,
-    VerificationRejectionReason,
+    VerificationResult,
+    VerificationStatus,
+    VerificationRejectionReason
 )
-from src.domain.evidence.models import Evidence
+from src.integrations.verifier import ProviderVerifier, RazorpayVerifier
 from src.integrations.razorpay.client import RazorpayClient
-
-VerificationResult = Union[List[Evidence], VerificationRejection]
-
 
 class DeterministicVerifier:
     """
     Translates a validated verification intent into a deterministic,
     read-only provider query, using parameters sourced strictly from the
-    trusted case expectation.
+    trusted InvestigationContext.
     """
 
     def __init__(self, razorpay_client: RazorpayClient) -> None:
-        self._client = razorpay_client
-        self._normalizer = RazorpayApiNormalizer()
+        # Simple registry of authorized providers
+        self._providers: Dict[str, ProviderVerifier] = {
+            "razorpay": RazorpayVerifier(razorpay_client)
+        }
 
     async def verify(
         self,
         hypothesis: CausalHypothesis,
-        case: ReconciliationCase,
-    ) -> VerificationResult:
+        context: InvestigationContext,
+    ) -> List[VerificationResult]:
         """
-        Execute the verification intent proposed by the hypothesis.
+        Execute the verification intents proposed by the hypothesis.
 
         Parameters
         ----------
         hypothesis : CausalHypothesis
             The validated hypothesis from D4 (OutputValidator).
-        case : ReconciliationCase
-            The trusted case. Query parameters are derived from here.
+        context : InvestigationContext
+            The trusted immutable facts. Query parameters are derived from here.
 
         Returns
         -------
-        List[Evidence]
-            New evidence produced by the provider query, normalized by Phase C.
-        VerificationRejection
-            If the query cannot be executed or fails.
+        List[VerificationResult]
+            A list of structured verification results, one for each intent, 
+            containing new Evidence and Normalized Observations if successful.
         """
         if hypothesis.disposition == InvestigationDisposition.INVESTIGATION_EXHAUSTED:
-            return VerificationRejection(
-                reason=VerificationRejectionReason.EXHAUSTED,
-                detail="Agent declared investigation exhausted.",
-                hypothesis=hypothesis,
-            )
+            return []
 
-        intent = hypothesis.verification_intent
+        results: List[VerificationResult] = []
 
-        try:
-            if intent == VerificationIntent.QUERY_PROVIDER_REFUND:
-                return await self._query_provider_refund(case)
-            elif intent == VerificationIntent.QUERY_PROVIDER_PAYMENT:
-                return await self._query_provider_payment(case)
-            elif intent == VerificationIntent.QUERY_REFUND_EVENTS:
-                return await self._query_refund_events(case)
-            else:
-                return VerificationRejection(
-                    reason=VerificationRejectionReason.EXHAUSTED,
-                    detail=f"Unsupported verification intent: {intent}",
-                    hypothesis=hypothesis,
+        for intent in hypothesis.verification_intents:
+            # 1. Trusted Provider Routing
+            provider = None
+            if context.expectation and context.expectation.correlation_keys.provider:
+                provider = context.expectation.correlation_keys.provider
+            
+            # Fallback to observations if expectation lacks explicit provider mapping
+            if not provider and context.observations:
+                provider = context.observations[0].provider
+
+            if not provider:
+                results.append(
+                    VerificationResult(
+                        verification_id=str(uuid.uuid4()),
+                        intent=intent,
+                        status=VerificationStatus.REJECTED,
+                        evidence_ids=[],
+                        new_observations=[],
+                        failure_reason=VerificationRejectionReason.MISSING_PARAMETERS.value,
+                        verified_at=datetime.now(timezone.utc)
+                    )
                 )
-        except httpx.HTTPError as exc:
-            return VerificationRejection(
-                reason=VerificationRejectionReason.PROVIDER_ERROR,
-                detail=f"Provider network/API error: {exc}",
-                hypothesis=hypothesis,
-            )
-        except Exception as exc:
-            return VerificationRejection(
-                reason=VerificationRejectionReason.PROVIDER_ERROR,
-                detail=f"Unexpected verification failure: {exc}",
-                hypothesis=hypothesis,
-            )
+                from src.observability.metrics import inc_a4_verification
+                inc_a4_verification("unknown", VerificationStatus.REJECTED.value)
+                continue
 
-    async def _query_provider_refund(self, case: ReconciliationCase) -> VerificationResult:
-        """
-        Query the provider for refunds matching the case expectation's receipt/intent_id.
-        """
-        if not case.expectation:
-            return VerificationRejection(
-                reason=VerificationRejectionReason.EXHAUSTED,
-                detail="Cannot query provider refund: case has no expected refund.",
-            )
+            verifier = self._providers.get(provider.lower())
+            if not verifier:
+                results.append(
+                    VerificationResult(
+                        verification_id=str(uuid.uuid4()),
+                        intent=intent,
+                        status=VerificationStatus.REJECTED,
+                        evidence_ids=[],
+                        new_observations=[],
+                        failure_reason=f"Unsupported provider: {provider}",
+                        verified_at=datetime.now(timezone.utc)
+                    )
+                )
+                from src.observability.metrics import inc_a4_verification
+                inc_a4_verification(provider.lower(), VerificationStatus.REJECTED.value)
+                continue
 
-        payment_id = case.expectation.provider_payment_id
-        receipt = case.expectation.intent_id
+            # 2. Execute via Provider Strategy
+            import time
+            start_time = time.monotonic()
+            try:
+                result = await verifier.verify(intent, context)
+            finally:
+                elapsed = time.monotonic() - start_time
+                from src.observability.metrics import observe_provider_latency
+                observe_provider_latency(provider.lower(), elapsed)
 
-        if not payment_id or not receipt:
-            return VerificationRejection(
-                reason=VerificationRejectionReason.EXHAUSTED,
-                detail="Cannot query provider refund: missing payment_id or intent_id.",
-            )
+            from src.observability.metrics import inc_a4_verification
+            inc_a4_verification(provider.lower(), result.status.value)
+            results.append(result)
 
-        # Execute read-only provider call using only trusted parameters
-        refunds = await self._client.get_payment_refunds(payment_id)
-
-        # Filter to the specific receipt we care about
-        matched = [r for r in refunds if r.receipt == receipt]
-
-        evidences: List[Evidence] = []
-        for r in matched:
-            evidence = self._normalizer.normalize(
-                raw_payload=r.model_dump(),
-                provenance={
-                    "source": "verifier_query",
-                    "intent": VerificationIntent.QUERY_PROVIDER_REFUND.value,
-                },
-            )
-            evidences.append(evidence)
-
-        return evidences
-
-    async def _query_provider_payment(self, case: ReconciliationCase) -> VerificationResult:
-        """
-        Query the provider for the parent payment state.
-        """
-        if not case.expectation or not case.expectation.provider_payment_id:
-            return VerificationRejection(
-                reason=VerificationRejectionReason.EXHAUSTED,
-                detail="Cannot query provider payment: missing provider_payment_id.",
-            )
-
-        payment_id = case.expectation.provider_payment_id
-
-        # Execute read-only provider call using only trusted parameters
-        payment = await self._client.get_payment(payment_id)
-
-        evidence = self._normalizer.normalize(
-            raw_payload=payment.model_dump(),
-            provenance={
-                "source": "verifier_query",
-                "intent": VerificationIntent.QUERY_PROVIDER_PAYMENT.value,
-            },
-        )
-        return [evidence]
-
-    async def _query_refund_events(self, case: ReconciliationCase) -> VerificationResult:
-        """
-        For now, this executes the same underlying query as QUERY_PROVIDER_REFUND
-        and returns all matching evidence.
-        """
-        return await self._query_provider_refund(case)
+        return results

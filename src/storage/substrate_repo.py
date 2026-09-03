@@ -1,5 +1,7 @@
 from typing import Protocol, List, Optional
 from src.domain.core.models import Expectation, Observation, Evidence, ReconciliationResult
+from src.domain.core.models import Expectation, Observation, Evidence, ReconciliationResult, CorrelationKeys
+from abc import ABC, abstractmethod
 
 class ExpectationRepository(Protocol):
     def save(self, expectation: Expectation) -> None:
@@ -8,13 +10,21 @@ class ExpectationRepository(Protocol):
         ...
     def find_open(self) -> List[Expectation]:
         ...
+    def find_by_correlation_keys(self, keys: CorrelationKeys) -> List[Expectation]:
+        ...
 
-class ObservationRepository(Protocol):
+class ObservationRepository(ABC):
+    @abstractmethod
     def save(self, observation: Observation) -> None:
         ...
+    @abstractmethod
     def get(self, observation_id: str) -> Optional[Observation]:
         ...
+    @abstractmethod
     def find_by_business_identity(self, provider: str, provider_reference: str, observation_type: str) -> List[Observation]:
+        ...
+    @abstractmethod
+    def find_by_correlation_keys(self, keys: CorrelationKeys) -> List[Observation]:
         ...
 
 class EvidenceRepository(Protocol):
@@ -46,7 +56,16 @@ class MemoryExpectationRepository:
         from src.domain.core.models import BusinessStatus
         return [e for e in self._store.values() if e.business_status == BusinessStatus.OPEN]
 
-class MemoryObservationRepository:
+    def find_by_correlation_keys(self, keys: CorrelationKeys) -> List[Expectation]:
+        results = []
+        for exp in self._store.values():
+            if keys.internal_ref and exp.correlation_keys.internal_ref == keys.internal_ref:
+                results.append(exp)
+            elif keys.provider_ref and exp.correlation_keys.provider_ref == keys.provider_ref:
+                results.append(exp)
+        return results
+
+class MemoryObservationRepository(ObservationRepository):
     def __init__(self):
         self._store = {}
         
@@ -63,6 +82,17 @@ class MemoryObservationRepository:
             and o.provider_reference == provider_reference 
             and o.observation_type == observation_type
         ]
+
+    def find_by_correlation_keys(self, keys: CorrelationKeys) -> List[Observation]:
+        results = []
+        for obs in self._store.values():
+            if keys.internal_ref and obs.correlation_keys.internal_ref == keys.internal_ref:
+                results.append(obs)
+            elif keys.provider_ref and obs.correlation_keys.provider_ref == keys.provider_ref:
+                results.append(obs)
+            elif keys.provider_ref and obs.provider_reference == keys.provider_ref: # Fallback
+                results.append(obs)
+        return results
 
 class MemoryEvidenceRepository:
     def __init__(self):

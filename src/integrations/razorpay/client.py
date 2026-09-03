@@ -1,14 +1,23 @@
 import httpx
-from .config import settings
 from .models import RazorpayOrder, RazorpayPayment
+from src.config.settings import RazorpaySettings
 
 from typing import Optional, Any
+
+class ProviderNetworkError(Exception):
+    """Raised on timeouts, connection errors, and 5xx server errors (retryable)."""
+    pass
+
+class ProviderClientError(Exception):
+    """Raised on 4xx errors like validation, not found, unauth (deterministic)."""
+    pass
 
 class RazorpayClient:
     BASE_URL = "https://api.razorpay.com/v1"
 
-    def __init__(self, client: Optional[httpx.AsyncClient] = None):
-        self._auth = (settings.key_id, settings.key_secret)
+    def __init__(self, settings: RazorpaySettings, client: Optional[httpx.AsyncClient] = None):
+        # Unmask the secret only at the HTTP client boundary
+        self._auth = (settings.key_id, settings.key_secret.get_secret_value())
         if client:
             self._client = client
         else:
@@ -21,25 +30,39 @@ class RazorpayClient:
     async def close(self):
         await self._client.aclose()
 
+    def _handle_response(self, response: httpx.Response):
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code >= 500 or e.response.status_code == 429:
+                raise ProviderNetworkError(f"Provider server error {e.response.status_code}: {e.response.text}")
+            else:
+                raise ProviderClientError(f"Provider client error {e.response.status_code}: {e.response.text}")
+        return response.json()
+
+    async def _safe_request(self, method: str, url: str, **kwargs) -> Any:
+        try:
+            response = await self._client.request(method, url, **kwargs)
+            return self._handle_response(response)
+        except httpx.RequestError as e:
+            raise ProviderNetworkError(f"Network error communicating with provider: {str(e)}")
+
     async def create_order(self, amount: int, currency: str, receipt: str) -> RazorpayOrder:
         payload = {
             "amount": amount,
             "currency": currency,
             "receipt": receipt
         }
-        response = await self._client.post("/orders", json=payload)
-        response.raise_for_status()
-        return RazorpayOrder.model_validate(response.json())
+        data = await self._safe_request("POST", "/orders", json=payload)
+        return RazorpayOrder.model_validate(data)
 
     async def get_order(self, order_id: str) -> RazorpayOrder:
-        response = await self._client.get(f"/orders/{order_id}")
-        response.raise_for_status()
-        return RazorpayOrder.model_validate(response.json())
+        data = await self._safe_request("GET", f"/orders/{order_id}")
+        return RazorpayOrder.model_validate(data)
 
     async def get_payment(self, payment_id: str) -> RazorpayPayment:
-        response = await self._client.get(f"/payments/{payment_id}")
-        response.raise_for_status()
-        return RazorpayPayment.model_validate(response.json())
+        data = await self._safe_request("GET", f"/payments/{payment_id}")
+        return RazorpayPayment.model_validate(data)
 
     async def create_refund(
         self, 
@@ -61,23 +84,20 @@ class RazorpayClient:
         if idempotency_key:
             headers["X-Idempotency-Key"] = idempotency_key
             
-        response = await self._client.post(
+        data = await self._safe_request(
+            "POST",
             f"/payments/{payment_id}/refund", 
             json=payload,
             headers=headers
         )
-        response.raise_for_status()
-        return RazorpayRefund.model_validate(response.json())
+        return RazorpayRefund.model_validate(data)
 
     async def get_refund(self, refund_id: str):
         from .models import RazorpayRefund
-        response = await self._client.get(f"/refunds/{refund_id}")
-        response.raise_for_status()
-        return RazorpayRefund.model_validate(response.json())
+        data = await self._safe_request("GET", f"/refunds/{refund_id}")
+        return RazorpayRefund.model_validate(data)
 
     async def get_payment_refunds(self, payment_id: str):
         from .models import RazorpayRefund
-        response = await self._client.get(f"/payments/{payment_id}/refunds")
-        response.raise_for_status()
-        data = response.json()
+        data = await self._safe_request("GET", f"/payments/{payment_id}/refunds")
         return [RazorpayRefund.model_validate(item) for item in data.get("items", [])]

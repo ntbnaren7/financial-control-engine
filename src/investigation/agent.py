@@ -42,22 +42,14 @@ from src.domain.investigation.models import (
     InvestigationDisposition,
     VerificationIntent,
 )
+from src.config.settings import LLMSettings
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# The single, pinned model artifact.  Change this constant when the model
-# selection changes; do not allow callers to supply an arbitrary model name.
-PINNED_MODEL: str = "qwen3:8b"
-
-OLLAMA_BASE_URL: str = "http://localhost:11434"
-_CHAT_ENDPOINT: str = f"{OLLAMA_BASE_URL}/api/chat"
-_TAGS_ENDPOINT: str = f"{OLLAMA_BASE_URL}/api/tags"
-
 # Generation parameters — deterministic for reproducibility.
 _TEMPERATURE: float = 0.0
-_TIMEOUT_SECONDS: float = 120.0  # local inference can be slow
 
 # ---------------------------------------------------------------------------
 # Investigator protocol
@@ -112,31 +104,33 @@ class StructuredOutputError(InvestigatorError):
 
 _SYSTEM_PROMPT: str = """You are an AI financial investigation assistant operating within a deterministic financial control system.
 
-Your ONLY job is to analyze a single unresolved financial discrepancy and produce a structured hypothesis.
+Your ONLY job is to analyze a single unresolved financial discrepancy and produce a structured causal hypothesis.
 
 STRICT BOUNDARIES:
-- You analyze ONLY the facts provided in the input. You do NOT invent evidence.
-- You select a verification intent ONLY from the permitted_verification_intents list. You do NOT suggest other queries.
-- You reference ONLY evidence_ids that appear inside the correlated_observations or unmatched_observations lists. You do NOT use intent_id, payment_id, or fabricate evidence IDs.
+- You analyze ONLY the facts provided in the input (InvestigationContext). You do NOT invent evidence.
+- You select verification intents ONLY from the permitted_verification_intents list. You do NOT suggest other queries.
+- You reference ONLY evidence_ids that appear inside the evidence_records list. You do NOT use intent_id, payment_id, or fabricate evidence IDs.
 - You do NOT determine financial truth. You propose a hypothesis for deterministic verification.
-- Your confidence value (LOW/MEDIUM/HIGH) is informational only. It has zero effect on what happens next.
-- If no permitted verification can resolve the stalemate, set disposition to INVESTIGATION_EXHAUSTED and omit verification_intent.
+- Your confidence value (LOW/MEDIUM/HIGH) is informational only.
+- If no permitted verification can resolve the stalemate, set disposition to INVESTIGATION_EXHAUSTED and leave verification_intents empty.
+- Every substantive claim must reference evidence from InvestigationContext, or explicitly identify the required information as missing.
 
 You MUST respond with a JSON object conforming EXACTLY to this schema:
 {
-  "hypothesis": "<concise falsifiable explanation of why the discrepancy occurred>",
+  "hypothesis_id": "<unique_identifier_for_this_claim>",
+  "claim": "<concise falsifiable explanation of why the discrepancy occurred>",
   "supporting_evidence_ids": ["<evidence_id from input>", ...],
   "contradicting_evidence_ids": ["<evidence_id from input>", ...],
-  "missing_evidence_description": "<what evidence would discriminate between hypotheses>",
+  "missing_evidence": "<what evidence would discriminate between hypotheses>",
   "confidence": "LOW" | "MEDIUM" | "HIGH",
   "disposition": "VERIFICATION_PROPOSED" | "INVESTIGATION_EXHAUSTED",
-  "verification_intent": "QUERY_PROVIDER_REFUND" | "QUERY_PROVIDER_PAYMENT" | "QUERY_REFUND_EVENTS" | null
+  "verification_intents": ["QUERY_PROVIDER_STATE", ...]
 }
 
 Rules:
-- verification_intent MUST be non-null when disposition is VERIFICATION_PROPOSED.
-- verification_intent MUST be null when disposition is INVESTIGATION_EXHAUSTED.
-- verification_intent MUST be one of the values in permitted_verification_intents from the input.
+- verification_intents MUST be non-empty when disposition is VERIFICATION_PROPOSED.
+- verification_intents MUST be empty when disposition is INVESTIGATION_EXHAUSTED.
+- verification_intents MUST contain ONLY values in permitted_verification_intents from the input.
 - Do NOT include any text outside the JSON object.
 """
 
@@ -160,28 +154,29 @@ def _build_user_message(agent_input: Dict[str, Any]) -> str:
 _CAUSAL_HYPOTHESIS_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "required": [
-        "hypothesis",
+        "hypothesis_id",
+        "claim",
         "supporting_evidence_ids",
         "contradicting_evidence_ids",
-        "missing_evidence_description",
+        "missing_evidence",
         "confidence",
         "disposition",
+        "verification_intents"
     ],
     "properties": {
-        "hypothesis":                   {"type": "string"},
+        "hypothesis_id":                {"type": "string"},
+        "claim":                        {"type": "string"},
         "supporting_evidence_ids":      {"type": "array", "items": {"type": "string"}},
         "contradicting_evidence_ids":   {"type": "array", "items": {"type": "string"}},
-        "missing_evidence_description": {"type": "string"},
+        "missing_evidence":             {"type": "string"},
         "confidence":                   {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
         "disposition":                  {
             "type": "string",
             "enum": ["VERIFICATION_PROPOSED", "INVESTIGATION_EXHAUSTED"],
         },
-        "verification_intent": {
-            "oneOf": [
-                {"type": "string", "enum": [v.value for v in VerificationIntent]},
-                {"type": "null"},
-            ]
+        "verification_intents": {
+            "type": "array",
+            "items": {"type": "string", "enum": [v.value for v in VerificationIntent]}
         },
     },
     "additionalProperties": False,
@@ -201,23 +196,24 @@ class LocalLLMInvestigator:
     depends only on the Investigator protocol and CausalHypothesis.
 
     Model availability check:
-      __init__ immediately verifies that PINNED_MODEL is present in the Ollama
+      __init__ immediately verifies that the configured model is present in the Ollama
       runtime.  If not, OllamaModelNotFound is raised.  This prevents silent
       fallback to a different model.
     """
 
     def __init__(
         self,
-        model: str = PINNED_MODEL,
-        base_url: str = OLLAMA_BASE_URL,
-        temperature: float = _TEMPERATURE,
-        timeout: float = _TIMEOUT_SECONDS,
+        settings: LLMSettings,
     ) -> None:
-        self._model = model
-        self._chat_url = f"{base_url}/api/chat"
-        self._tags_url = f"{base_url}/api/tags"
-        self._temperature = temperature
-        self._timeout = timeout
+        """
+        Initializes the investigator with injected LLMSettings.
+        """
+        self._model = settings.model_name
+        self._timeout = settings.timeout_seconds
+        self._temperature = _TEMPERATURE
+        
+        self._chat_url = f"{settings.base_url}/api/chat"
+        self._tags_url = f"{settings.base_url}/api/tags"
         self._verify_model_available()
 
     def _verify_model_available(self) -> None:
@@ -284,16 +280,31 @@ class LocalLLMInvestigator:
             )
             response.raise_for_status()
         except httpx.ConnectError as exc:
+            from src.observability.metrics import inc_a3_failure
+            inc_a3_failure("connection")
             raise OllamaConnectionError(
                 f"Cannot connect to Ollama at {self._chat_url}"
             ) from exc
+        except httpx.TimeoutException as exc:
+            from src.observability.metrics import inc_a3_failure
+            inc_a3_failure("timeout")
+            raise OllamaConnectionError(
+                f"Ollama timed out after {self._timeout}s"
+            ) from exc
         except httpx.HTTPStatusError as exc:
+            from src.observability.metrics import inc_a3_failure
+            inc_a3_failure("http_status")
             raise OllamaConnectionError(
                 f"Ollama returned HTTP {exc.response.status_code}"
             ) from exc
 
         raw_content = self._extract_content(response.json())
-        return self._parse_hypothesis(raw_content)
+        try:
+            return self._parse_hypothesis(raw_content)
+        except StructuredOutputError:
+            from src.observability.metrics import inc_a3_failure
+            inc_a3_failure("structured_output")
+            raise
 
     @staticmethod
     def _extract_content(response_json: Dict[str, Any]) -> str:

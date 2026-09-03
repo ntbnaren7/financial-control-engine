@@ -56,16 +56,15 @@ def _collect_known_evidence_ids(agent_input: Dict[str, Any]) -> Set[str]:
     """
     Extract every evidence_id present in the D2 agent_input.
 
-    Covers both correlated_observations and unmatched_observations.
+    Covers evidence_records from the InvestigationContext.
     This is the complete set the LLM was allowed to see; any referenced
     ID that is not in this set is a hallucination.
     """
     ids: Set[str] = set()
-    for key in ("correlated_observations", "unmatched_observations"):
-        for obs in agent_input.get(key, []):
-            ev_id = obs.get("evidence_id")
-            if ev_id:
-                ids.add(ev_id)
+    for ev in agent_input.get("evidence_records", []):
+        ev_id = ev.get("evidence_id")
+        if ev_id:
+            ids.add(ev_id)
     return ids
 
 
@@ -207,42 +206,37 @@ class OutputValidator:
         agent_input: Dict[str, Any],
     ) -> ValidationRejection | None:
         """
-        Verify that the proposed verification_intent is in the permitted set.
+        Verify that the proposed verification_intents are in the permitted set.
 
-        When disposition is INVESTIGATION_EXHAUSTED, verification_intent is
-        None and this check always passes (no intent to validate).
+        When disposition is INVESTIGATION_EXHAUSTED, verification_intents is
+        empty and this check always passes.
 
-        The permitted set comes from agent_input["permitted_verification_intents"],
-        which is the hardcoded Phase D allowlist injected by the formatter.
-        The LLM cannot extend this set.
-
+        The permitted set comes from agent_input["permitted_verification_intents"].
         Returns None on success.
         """
         if hypothesis.disposition == InvestigationDisposition.INVESTIGATION_EXHAUSTED:
-            # No intent to validate
             return None
 
-        intent = hypothesis.verification_intent
-        if intent is None:
-            # Should not be reachable (D1 model_validator catches this), but
-            # included for defence-in-depth
+        intents = hypothesis.verification_intents
+        if not intents:
             return ValidationRejection(
                 reason=ValidationRejectionReason.INTENT_DISPOSITION_MISMATCH,
                 detail=(
                     "disposition is VERIFICATION_PROPOSED but "
-                    "verification_intent is None"
+                    "verification_intents is empty"
                 ),
                 raw_output=hypothesis.model_dump(),
             )
 
         permitted = _collect_permitted_intents(agent_input)
-        if intent.value not in permitted:
-            return ValidationRejection(
-                reason=ValidationRejectionReason.INVALID_INTENT,
-                detail=(
-                    f"verification_intent '{intent.value}' is not in the "
-                    f"permitted set for this case: {sorted(permitted)}"
-                ),
-                raw_output=hypothesis.model_dump(),
-            )
+        for intent in intents:
+            if intent.value not in permitted:
+                return ValidationRejection(
+                    reason=ValidationRejectionReason.INVALID_INTENT,
+                    detail=(
+                        f"verification_intent '{intent.value}' is not in the "
+                        f"permitted set for this case: {sorted(permitted)}"
+                    ),
+                    raw_output=hypothesis.model_dump(),
+                )
         return None
