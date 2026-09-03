@@ -23,13 +23,43 @@ import httpx
 def get_now():
     return datetime.now(timezone.utc)
 
+@pytest.fixture(scope="session")
+def postgres_engine():
+    from testcontainers.postgres import PostgresContainer
+    from sqlalchemy import create_engine
+    from src.storage.postgres.models import Base
+    
+    with PostgresContainer("postgres:16-alpine") as postgres:
+        url = postgres.get_connection_url()
+        # Testcontainers defaults to psycopg2. Force psycopg3 driver.
+        url = url.replace("postgresql+psycopg2://", "postgresql+psycopg://")
+        if "postgresql://" in url:
+            url = url.replace("postgresql://", "postgresql+psycopg://")
+        engine = create_engine(url)
+        Base.metadata.create_all(engine)
+        yield engine
+
 @pytest.fixture
-def environment():
+def session_factory(postgres_engine):
+    from sqlalchemy.orm import sessionmaker
+    from src.storage.postgres.models import Base
+    # Clear tables between tests for independence
+    with postgres_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+    return sessionmaker(bind=postgres_engine)
+
+@pytest.fixture
+def environment(session_factory):
     class TestEnvironment:
-        def __init__(self):
+        def __init__(self, session_factory):
             self.now = get_now()
             
-            self.repo = MemoryRepository()
+            from src.storage.postgres.postgres_repo import PostgresRepository
+            from src.storage.postgres.incident_repo import PostgresIncidentRepository
+            from src.storage.postgres.outbox import PostgresActionOutbox
+
+            self.repo = PostgresRepository(session_factory)
             self.recon_engine = ReconciliationEngine()
             
             # Simple Investigator that doesn't actually call Ollama for tests
@@ -48,22 +78,26 @@ def environment():
             self.razorpay_client = RazorpayClient(client=self.http_client)
             self.verifier = DeterministicVerifier(razorpay_client=self.razorpay_client)
             
+            # Using PostgresIncidentRepository
+            incident_repo = PostgresIncidentRepository(session_factory)
             self.incident_engine = IncidentEngine(
                 reconciliation_engine=self.recon_engine,
                 investigator=self.investigator,
                 validator=self.validator,
-                verifier=self.verifier
+                verifier=self.verifier,
             )
+            # Override internal repo for IncidentEngine
+            self.incident_engine._repo = incident_repo # type: ignore
             
             self.runtime = ControlRuntime(
-                repository=self.repo,
+                repository=self.repo, # type: ignore
                 reconciliation_engine=self.recon_engine,
                 incident_engine=self.incident_engine
             )
             
             self.policy = ActionPolicyEngine()
-            self.outbox = ActionOutbox()
-            self.executor = ActionExecutor(self.outbox, self.runtime, self.razorpay_client)
+            self.outbox = PostgresActionOutbox(session_factory)
+            self.executor = ActionExecutor(self.outbox, self.runtime, self.razorpay_client) # type: ignore
 
         def create_expectation(self, intent_id: str, amount: str = "500.00", age_hours: int = 2) -> ExpectedRefund:
             return ExpectedRefund(
@@ -91,7 +125,7 @@ def environment():
                 created_at=self.now
             )
 
-    return TestEnvironment()
+    return TestEnvironment(session_factory)
 
 
 # --- Invariant Group 1: Deterministic Ordering & Deduplication ---

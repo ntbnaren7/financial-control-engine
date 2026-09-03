@@ -5,16 +5,20 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.19.1",
     "httpx",
+    "psycopg[binary]>=3.3.5",
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
+    "sqlalchemy>=2.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "testcontainers[postgres]>=4.15.0",
 ]
 
 [tool.pytest.ini_options]

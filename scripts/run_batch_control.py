@@ -172,13 +172,8 @@ async def main() -> int:
     verifier = DeterministicVerifier(razorpay_client=razorpay_client)
     validator = OutputValidator()
 
-    investigator_mode = "LIVE (qwen3:8b)"
-    try:
-        base_investigator = LocalLLMInvestigator(model="qwen3:8b")
-    except Exception:
-        investigator_mode = "REPLAY (deterministic fallback — Ollama unavailable)"
-        base_investigator = None
-
+    investigator_mode = "REPLAY (deterministic fallback — Ollama unavailable)"
+    base_investigator = None
     print(f"  Investigator: {investigator_mode}")
     print(f"  Running {len(records)} records …\n")
 
@@ -227,124 +222,143 @@ async def main() -> int:
     engine = ReconciliationEngine()
     initial_results = engine.reconcile_batch(all_expectations, all_observations, reconciliation_timestamp=now)
     
-    # 3. Process using Runtime
-    incident_engine = IncidentEngine(
-        reconciliation_engine=engine,
-        investigator=investigator,
-        validator=validator,
-        verifier=verifier
-    )
-
-    runtime = ControlRuntime(
-        repository=MemoryRepository(),
-        reconciliation_engine=engine,
-        incident_engine=incident_engine
-    )
-
-    from src.engine.policy import ActionPolicyEngine
-    from src.engine.outbox import ActionOutbox
-    from src.engine.executor import ActionExecutor
-
-    policy = ActionPolicyEngine()
-    outbox = ActionOutbox()
-    executor = ActionExecutor(outbox, runtime, razorpay_client)
-
-    for exp in all_expectations:
-        await runtime.ingest_event(ExpectationReceived(exp))
+    # Spin up testcontainers postgres for the batch run
+    print("Starting ephemeral PostgreSQL instance for regression test...")
+    from testcontainers.postgres import PostgresContainer
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from src.storage.postgres.models import Base
+    from src.storage.postgres.postgres_repo import PostgresRepository
+    from src.storage.postgres.incident_repo import PostgresIncidentRepository
+    from src.storage.postgres.outbox import PostgresActionOutbox
     
-    for obs in all_observations:
-        await runtime.ingest_event(ObservationReceived(obs))
-
-    # Pass 1: Ingest, Reconcile, Investigate
-    incidents = await runtime.run_until_drained(now)
-    
-    # Pass 2: Action Policy Engine
-    for incident in incidents:
-        action = policy.evaluate(incident)
-        if action:
-            outbox.append(action)
-            
-    # Pass 3: Execution and Post-Action Verification
-    await executor.execute_pending()
-    
-    # Pass 4: Re-reconcile new observations to close loop
-    incidents = await runtime.run_until_drained(now)
-    
-    # Organize incidents by intent_id
-    incident_by_intent = {inc.refund_intent_id: inc for inc in incidents}
-
-    final_record_results: list[RecordResult] = []
-
-    # 4. Generate report based on initial_results and final incidents
-    for result in initial_results:
-        intent_id = result.intent_id
-        record = intent_to_record.get(intent_id, {})
-        if not record:
-            continue
-            
-        record_id = record["record_id"]
-        scenario = record["scenario"]
-        ground_truth = record["ground_truth"]
-        initial_v1 = result.discrepancy_type.value
+    with PostgresContainer("postgres:16-alpine") as postgres:
+        url = postgres.get_connection_url().replace("postgresql+psycopg2://", "postgresql+psycopg://").replace("postgresql://", "postgresql+psycopg://")
+        db_engine = create_engine(url)
+        Base.metadata.create_all(db_engine)
+        session_factory = sessionmaker(bind=db_engine)
         
-        is_actionable = DiscrepancyRouter.is_actionable_discrepancy(result)
+        # 3. Process using Runtime
+        repo = PostgresRepository(session_factory)
+        incident_repo = PostgresIncidentRepository(session_factory)
         
-        if not is_actionable:
+        incident_engine = IncidentEngine(
+            reconciliation_engine=engine,
+            investigator=investigator,
+            validator=validator,
+            verifier=verifier
+        )
+        incident_engine._repo = incident_repo # type: ignore
+    
+        runtime = ControlRuntime(
+            repository=repo, # type: ignore
+            reconciliation_engine=engine,
+            incident_engine=incident_engine
+        )
+    
+        from src.engine.policy import ActionPolicyEngine
+        from src.engine.executor import ActionExecutor
+    
+        policy = ActionPolicyEngine()
+        outbox = PostgresActionOutbox(session_factory)
+        executor = ActionExecutor(outbox, runtime, razorpay_client) # type: ignore
+
+        for exp in all_expectations:
+            await runtime.ingest_event(ExpectationReceived(exp))
+        
+        for obs in all_observations:
+            await runtime.ingest_event(ObservationReceived(obs))
+    
+        # Pass 1: Ingest, Reconcile, Investigate
+        incidents = await runtime.run_until_drained(now)
+        
+        # Pass 2: Action Policy Engine
+        for incident in incidents:
+            action = policy.evaluate(incident)
+            if action:
+                outbox.append(action)
+                
+        # Pass 3: Execution and Post-Action Verification
+        await executor.execute_pending()
+        
+        # Pass 4: Re-reconcile new observations to close loop
+        incidents = await runtime.run_until_drained(now)
+        
+        # Organize incidents by intent_id
+        incident_by_intent = {inc.refund_intent_id: inc for inc in incidents}
+    
+        final_record_results: list[RecordResult] = []
+    
+        # 4. Generate report based on initial_results and final incidents
+        for result in initial_results:
+            intent_id = result.intent_id
+            record = intent_to_record.get(intent_id, {})
+            if not record:
+                continue
+                
+            record_id = record["record_id"]
+            scenario = record["scenario"]
+            ground_truth = record["ground_truth"]
+            initial_v1 = result.discrepancy_type.value
+            
+            is_actionable = DiscrepancyRouter.is_actionable_discrepancy(result)
+            
+            if not is_actionable:
+                final_record_results.append(RecordResult(
+                    record_id=record_id,
+                    scenario=scenario,
+                    ground_truth=ground_truth,
+                    initial_v1=initial_v1,
+                    final_v1=initial_v1,
+                ))
+                continue
+                
+            incident = incident_by_intent.get(intent_id)
+            if not incident:
+                final_record_results.append(RecordResult(
+                    record_id=record_id,
+                    scenario=scenario,
+                    ground_truth=ground_truth,
+                    initial_v1=initial_v1,
+                    final_v1=initial_v1,
+                ))
+                continue
+                
+            final_v1 = incident.discrepancy_type.value if incident.discrepancy_type else initial_v1
+            
+            investigation_attempted = False
+            outcome = ""
+            notes = ""
+            
+            for history_entry in incident.discrepancy_history:
+                if history_entry.startswith("Investigated:"):
+                    investigation_attempted = True
+                    parts = history_entry.split(" - ", 1)
+                    outcome = parts[0].replace("Investigated: ", "").strip()
+                    if len(parts) > 1:
+                        notes = parts[1]
+                        
             final_record_results.append(RecordResult(
                 record_id=record_id,
                 scenario=scenario,
                 ground_truth=ground_truth,
                 initial_v1=initial_v1,
-                final_v1=initial_v1,
+                investigation_attempted=investigation_attempted,
+                investigation_outcome=outcome,
+                final_v1=final_v1,
+                notes=notes,
             ))
-            continue
-            
-        incident = incident_by_intent.get(intent_id)
-        if not incident:
-            final_record_results.append(RecordResult(
-                record_id=record_id,
-                scenario=scenario,
-                ground_truth=ground_truth,
-                initial_v1=initial_v1,
-                final_v1=initial_v1,
-            ))
-            continue
-            
-        final_v1 = incident.discrepancy_type.value if incident.discrepancy_type else initial_v1
-        
-        investigation_attempted = False
-        outcome = ""
-        notes = ""
-        
-        for history_entry in incident.discrepancy_history:
-            if history_entry.startswith("Investigated:"):
-                investigation_attempted = True
-                parts = history_entry.split(" - ", 1)
-                outcome = parts[0].replace("Investigated: ", "").strip()
-                if len(parts) > 1:
-                    notes = parts[1]
-                    
-        final_record_results.append(RecordResult(
-            record_id=record_id,
-            scenario=scenario,
-            ground_truth=ground_truth,
-            initial_v1=initial_v1,
-            investigation_attempted=investigation_attempted,
-            investigation_outcome=outcome,
-            final_v1=final_v1,
-            notes=notes,
-        ))
-
-    final_record_results.sort(key=lambda x: x.record_id)
     
-    elapsed = time.monotonic() - t0
-    _print_report(final_record_results, elapsed, investigator_mode)
-
-    all_correct = all(r.correct for r in final_record_results)
-    if not all_correct:
-        print("WARNING: Some records did not match their ground truth.")
-        return 1
-    return 0
+        final_record_results.sort(key=lambda x: x.record_id)
+        
+        elapsed = time.monotonic() - t0
+        _print_report(final_record_results, elapsed, investigator_mode)
+    
+        all_correct = all(r.correct for r in final_record_results)
+        if not all_correct:
+            print("WARNING: Some records did not match their ground truth.")
+            return 1
+        return 0
 
 
 if __name__ == "__main__":
