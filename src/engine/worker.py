@@ -15,8 +15,11 @@ from src.storage.postgres_substrate import (
     InvestigationState
 )
 from src.domain.investigation.models import VerificationStatus, ValidationRejection, CausalHypothesis
-from src.domain.core.models import ReconciliationOutcome
+from src.domain.core.models import RecoveryAction, ReconciliationOutcome
 from src.engine.evidence_assembler import EvidenceAssembler
+from src.engine.policy import V2PolicyEvaluator
+from src.engine.actuator import SimulatedActuator
+from src.engine.observer import SimulatedObserver
 from src.investigation.agent import Investigator, InvestigatorError
 from src.investigation.validator import OutputValidator
 from src.investigation.verifier import DeterministicVerifier
@@ -60,6 +63,9 @@ class V2ControlWorker:
         self.investigator = investigator
         self.validator = validator
         self.verifier = verifier
+        self.policy = V2PolicyEvaluator()
+        self.actuator = SimulatedActuator()
+        self.observer = SimulatedObserver()
         self.settings = settings
         self.test_hooks = test_hooks or {}
 
@@ -283,14 +289,76 @@ class V2ControlWorker:
                     all_new_evidence.extend(v_res.new_evidence)
                     all_new_observations.extend(v_res.new_observations)
                         
-            # Atomic Persistence: Save Evidence, Upsert Observations, Release Incident, and Publish Event
-            self._trigger_hook("before_commit")
-            self.incident_repo.commit_verification_success(
-                active_subject=active_subject,
-                discrepancy_reason=discrepancy_reason,
-                new_evidence=all_new_evidence,
-                new_observations=all_new_observations
-            )
+            # DECIDE: Evaluate Policy
+            logger.info("Evaluating Policy to derive RecoveryIntent")
+            combined_observations = context.observations + all_new_observations
+            combined_evidence = context.evidence_records + all_new_evidence
+            
+            intent = self.policy.evaluate(active_subject, discrepancy_reason, combined_observations, combined_evidence)
+            
+            if intent is None or intent.action == RecoveryAction.ESCALATE:
+                logger.info(f"Policy derived ESCALATE for {active_subject}: {intent.reason if intent else 'No safe intent could be derived'}")
+                self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
+                inc_control_loop_outcome("escalated")
+                return
+                
+            # ACT: Simulated Actuator
+            logger.info(f"Executing ACT: {intent.action.value} on {intent.target_id}")
+            from src.domain.core.models import ActuationOutcome
+            actuation_outcome = self.actuator.execute(intent)
+            
+            if actuation_outcome == ActuationOutcome.REJECTED:
+                logger.error(f"Actuation REJECTED for {active_subject}. Escalating.")
+                self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
+                inc_control_loop_outcome("escalated")
+                return
+                
+            if actuation_outcome == ActuationOutcome.TIMEOUT_UNKNOWN:
+                logger.warning(f"Actuation TIMEOUT_UNKNOWN for {active_subject}. Will observe independently.")
+                
+            # OBSERVE AGAIN: Re-read state
+            logger.info(f"OBSERVE AGAIN: Reading final state from simulated external systems")
+            
+            if intent.action == RecoveryAction.REPAIR_MERCHANT_STATE:
+                final_obs = self.observer.observe_merchant_order(intent.target_id)
+                if final_obs:
+                    all_new_observations.append(final_obs)
+            elif intent.action == RecoveryAction.REFUND_PAYMENT:
+                final_obs = self.observer.observe_provider_payment(intent.target_id)
+                if final_obs:
+                    all_new_observations.append(final_obs)
+                    
+            # VERIFY OUTCOME
+            logger.info(f"VERIFY OUTCOME: Re-evaluating reconciliation with final state")
+            from src.engine.reconciliation_controls import evaluate_expectation_centric, evaluate_observation_centric
+            if context.expectation:
+                final_reconciliation = evaluate_expectation_centric(context.expectation, context.observations + all_new_observations)
+            else:
+                final_reconciliation = evaluate_observation_centric((context.observations + all_new_observations)[0], [])
+
+            
+            if final_reconciliation and final_reconciliation.outcome == ReconciliationOutcome.MATCH:
+                logger.info(f"Final Outcome is MATCH. Resolving incident {active_subject}.")
+                # Atomic Persistence: Save Evidence, Upsert Observations, Release Incident
+                self._trigger_hook("before_commit")
+                self.incident_repo.commit_verification_success(
+                    active_subject=active_subject,
+                    discrepancy_reason=discrepancy_reason,
+                    new_evidence=all_new_evidence,
+                    new_observations=all_new_observations
+                )
+                inc_control_loop_outcome("resolved")
+            else:
+                if actuation_outcome == ActuationOutcome.TIMEOUT_UNKNOWN:
+                    logger.warning(f"Outcome UNKNOWN and state did not reconcile for {active_subject}. Scheduling retry.")
+                    r_count = int(record.retry_count) # type: ignore
+                    delay = 30 * (2 ** r_count)
+                    self.incident_repo.schedule_retry(active_subject, discrepancy_reason, self.worker_id, delay)
+                    inc_control_loop_outcome("retry_pending")
+                else:
+                    logger.error(f"Actuation {actuation_outcome.value} but final state is DISCREPANCY for {active_subject}. Escalating.")
+                    self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
+                    inc_control_loop_outcome("escalated")
             
             observe_investigation_latency(time.monotonic() - investigation_start_time)
             observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())

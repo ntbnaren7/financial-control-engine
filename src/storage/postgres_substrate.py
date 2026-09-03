@@ -436,6 +436,13 @@ class PostgresActiveIncidentRepository:
                 ActiveIncidentIdempotencyRecord.state != InvestigationState.COMPLETED,
                 ActiveIncidentIdempotencyRecord.state != InvestigationState.ESCALATED
             ).count()
+            
+    def get_active_incident(self, active_subject: str, discrepancy_reason: str) -> Optional[ActiveIncidentIdempotencyRecord]:
+        with self.session_maker() as session:
+            return session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason
+            ).first()
 
     def try_claim_incident(self, active_subject: str, discrepancy_reason: str, incident_id: str) -> bool:
         """

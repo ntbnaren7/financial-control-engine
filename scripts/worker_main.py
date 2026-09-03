@@ -23,6 +23,49 @@ from src.integrations.razorpay.client import RazorpayClient
 from src.engine.worker import V2ControlWorker
 from src.observability.logging import configure_logging, get_logger
 import uuid
+import os
+from typing import Dict, Any, Optional
+
+from src.domain.investigation.models import (
+    CausalHypothesis, 
+    InvestigationDisposition, 
+    VerificationIntent, 
+    VerificationResult,
+    VerificationStatus
+)
+from src.domain.investigation.context import InvestigationContext
+import datetime
+
+class MockInvestigator:
+    def investigate(self, agent_input: Dict[str, Any]) -> CausalHypothesis:
+        return CausalHypothesis(
+            hypothesis_id="mock_hyp",
+            claim="Mock claim for validation",
+            supporting_evidence_ids=[],
+            contradicting_evidence_ids=[],
+            missing_evidence="none",
+            confidence="HIGH",
+            disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
+            verification_intents=[VerificationIntent.QUERY_PROVIDER_STATE]
+        )
+
+class MockVerifier:
+    def __init__(self, razorpay_client=None):
+        pass
+    async def verify(self, hypothesis: CausalHypothesis, context: InvestigationContext) -> list[VerificationResult]:
+        import asyncio
+        await asyncio.sleep(2)
+        return [
+            VerificationResult(
+                verification_id="mock_ver_id",
+                intent=VerificationIntent.QUERY_PROVIDER_STATE,
+                status=VerificationStatus.SUCCEEDED,
+                evidence_ids=[],
+                new_evidence=[],
+                new_observations=[],
+                verified_at=datetime.datetime.now(datetime.timezone.utc)
+            )
+        ]
 
 async def main():
     # Load configuration
@@ -54,11 +97,24 @@ async def main():
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
     
     # Initialize real components using Dependency Injection
-    investigator = LocalLLMInvestigator(settings=settings.llm)
-    validator = OutputValidator()
+    mock_mode = os.environ.get("FCE_MOCK_MODE") == "1"
     
-    razorpay_client = RazorpayClient(settings=settings.razorpay)
-    verifier = DeterministicVerifier(razorpay_client=razorpay_client)
+    if mock_mode:
+        logger.warning("FCE_MOCK_MODE=1: Using deterministic mocks for LLM and Verifier")
+        investigator = MockInvestigator()
+        
+        # We need a mock razorpay client to pass to MockVerifier if we use it, 
+        # or we just instantiate MockVerifier with a dummy or None. 
+        # But MockVerifier accepts razorpay_client but doesn't strictly use it if we mock everything.
+        from unittest.mock import AsyncMock
+        mock_rzp = AsyncMock()
+        verifier = MockVerifier(razorpay_client=mock_rzp)
+        validator = OutputValidator()
+    else:
+        investigator = LocalLLMInvestigator(settings=settings.llm)
+        validator = OutputValidator()
+        razorpay_client = RazorpayClient(settings=settings.razorpay)
+        verifier = DeterministicVerifier(razorpay_client=razorpay_client)
     
     worker = V2ControlWorker(
         worker_id=worker_id,
@@ -72,12 +128,14 @@ async def main():
         assembler=assembler,
         investigator=investigator,
         validator=validator,
-        verifier=verifier,
+        verifier=verifier, # type: ignore
         settings=settings.control_loop
     )
     
     # Run the control loop indefinitely
-    await worker.poll_and_process()
+    while True:
+        await worker.poll_and_process()
+        await asyncio.sleep(1)
 
 if __name__ == "__main__":
     asyncio.run(main())

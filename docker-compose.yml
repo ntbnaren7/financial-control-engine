@@ -15,24 +15,23 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    # In a real environment, you'd pull the model on startup, 
-    # but for this test we'll assume it's pulled or we can use a mock.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
 
   worker-a:
     build: .
     environment:
       - ENVIRONMENT=production
       - DATABASE__URL=postgresql+psycopg://postgres:postgres@postgres:5432/fce
-      - LLM__BASE_URL=http://ollama:11434
       - RAZORPAY__KEY_ID=dummy_key
       - RAZORPAY__KEY_SECRET=dummy_secret
       - WORKER_ID=worker-a
+      - FCE_MOCK_MODE=1
+      - CONTROL_LOOP__EVENT_STALE_THRESHOLD_SECONDS=2
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,10 +43,11 @@ services:
     environment:
       - ENVIRONMENT=production
       - DATABASE__URL=postgresql+psycopg://postgres:postgres@postgres:5432/fce
-      - LLM__BASE_URL=http://ollama:11434
       - RAZORPAY__KEY_ID=dummy_key
       - RAZORPAY__KEY_SECRET=dummy_secret
       - WORKER_ID=worker-b
+      - FCE_MOCK_MODE=1
+      - CONTROL_LOOP__EVENT_STALE_THRESHOLD_SECONDS=2
     depends_on:
       postgres:
         condition: service_healthy
