@@ -106,4 +106,6 @@ uv run pytest
 Expected outputs:
 - Demo: visible EPISTEMIC_STALEMATE → investigation → MATCH resolution
 - Batch: 50/50 correctness, 96% resolution, 2 named unresolved exceptions
-- Tests: 205 passed (15 are PostgreSQL invariants — requires Docker)
+- Tests: 186 deterministic tests passed, plus 15 PostgreSQL invariants (requires Docker)
+
+> Note: Live Ollama evaluation (`TestD3IntegrationRealOllama`) is included in the full test suite but is non-deterministic and occasionally fails due to inference timeouts depending on local hardware. The 186-test deterministic suite is the stable benchmark.

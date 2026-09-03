@@ -210,9 +210,11 @@ uv run pytest
 ## Test Suite
 
 ```
-205 passed
+186 passed (deterministic suite)
+ 15 passed (PostgreSQL invariants)
 ```
 
-Covers: V1 kernel invariants, D4 boundary validation, D5 verifier, state engine,
-evidence normalization, reconciliation model properties, integration slices, and
-15 adversarial PostgreSQL invariants (requires Docker for Testcontainers).
+**Evidence Hierarchy:**
+1. **186 deterministic tests passed:** Covers V1 kernel invariants, D4 boundary validation, D5 verifier, state engine, evidence normalization, and reconciliation model properties.
+2. **15 PostgreSQL invariants passed:** Validates the durable `PostgresRepository` and `PostgresActionOutbox` (requires Docker for Testcontainers).
+3. **Live Ollama evaluation:** Kept as an optional/non-deterministic integration test. Live tests (`TestD3IntegrationRealOllama`) may occasionally fail due to inference timeouts depending on the local hardware and model response time.

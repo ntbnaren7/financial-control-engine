@@ -87,11 +87,16 @@ async def run_demo() -> int:
     # ------------------------------------------------------------------
     # 1. Build investigator (live Ollama if available, else replay)
     # ------------------------------------------------------------------
-    investigator_mode = "LIVE (qwen3:8b)"
-    try:
-        base_investigator = LocalLLMInvestigator(model="qwen3:8b")
-    except Exception:
-        investigator_mode = "REPLAY (deterministic fallback)"
+    use_live = "--live" in sys.argv
+    if use_live:
+        investigator_mode = "LIVE (qwen3:8b)"
+        try:
+            base_investigator = LocalLLMInvestigator(model="qwen3:8b")
+        except Exception:
+            investigator_mode = "REPLAY (deterministic fallback)"
+            base_investigator = None
+    else:
+        investigator_mode = "REPLAY (deterministic — use --live for Ollama)"
         base_investigator = None
 
     sub_case_hints = {INTENT_ID: "C1_ABSENT_EXECUTION_REFUND_FOUND"}
