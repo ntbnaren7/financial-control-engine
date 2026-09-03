@@ -1,51 +1,141 @@
-# FCE Demo Narrative Script
+# Demo Narrative — Financial Control Engine
 
-This script is designed for a video presentation or live demo. It traces exactly one hero incident to prove the boundaries of the Financial Control Engine.
+**Track 4: AI Finance Controller**  
+Target duration: 2–3 minutes
 
-## The Setup
-**Speaker:** "Welcome to the Financial Control Engine demo. We are going to show you how we solve one of the most frustrating problems in payments: the silent failure."
+---
 
-*(Show the database state or terminal.)*
+## Setup
 
-**Speaker:** "Here we have a simulated incident. A customer paid ₹5,000 via Razorpay. The money was captured. But the webhook failed. The internal merchant order is stuck in the `UNPAID` state. We are going to trigger the FCE pipeline to fix it."
+Two terminal windows:
 
-## Controller Breadth (Track 4 Batch Acceptance)
-**Action:** *Run the batch evaluation via CLI (`uv run scripts/run_batch_evaluation.py`).*
+```bash
+# Window 1: single-case demo
+cd financial-control-engine
 
-**Speaker:** "But before we dive into how that single incident is fixed, let's look at the system's operational breadth. We just fed a synthetic finance-ops workload of 50 financial cases into the controller."
+# Window 2: batch evaluation
+cd financial-control-engine
+```
 
-*(Point to the terminal output showing 50 records processed, 100% synthetic oracle conformance, and 0 unauthorized mutations under tested scenarios.)*
+Both commands run offline. No live provider credentials required.
 
-**Speaker:** "The system successfully resolved the actionable discrepancies and cleanly rejected the ones with no safe repair path, like currency mismatches and orphaned payments. It achieved 100% synthetic classification and outcome conformance without a single unauthorized mutation under our tested scenarios. Now, let's zoom in on exactly how it resolved one of those actionable cases."
+---
 
-## Detection & AI Investigation
-**Action:** *Run the pipeline via CLI (canonical V1 demo runner — to be finalized in the V1 demo phase).*
+## Act 1 — The problem (30 seconds)
 
-**Speaker:** "First, the M3 deterministic engine spots the discrepancy between the provider and the merchant state. It flags a `CAPTURED_PAYMENT_STALE_ORDER`."
+> "Payment providers deliver refund confirmations through webhooks that can be lost
+> or delayed. When a webhook never arrives, a finance team has an open case: the
+> internal system expected a refund, but nothing was confirmed. Someone has to
+> manually query the provider, interpret the response, and decide what happened.
+> At scale — hundreds of transactions per day — that manual loop is expensive."
 
-**Speaker:** "Instead of alerting a human operator, it passes the evidence to the M4 AI Investigation Engine. The AI acts as our detective. It synthesizes the missing webhook and the captured state, and generates a structured JSON proposal suggesting we repair the state."
+> "This engine closes that loop automatically."
 
-## The Crucial Boundary
-**Action:** *Highlight the logs where Semantic Validation and Control Plane execute.*
+---
 
-**Speaker:** "But here is the core thesis of FCE: **The AI is allowed to be wrong; the system is not allowed to trust it.** We do not give the AI a SQL connection."
+## Act 2 — The architecture (30 seconds)
 
-**Speaker:** "Instead, the AI's proposal is passed to our Control Plane. The Control Plane completely ignores the AI's rationale. It reads the raw evidence independently, checks strict financial admissibility rules, and verifies the preconditions. Only then does it authorize the repair."
+> "There are two layers. A deterministic kernel — V1 — classifies every case from
+> the evidence available. When the evidence is sufficient, it produces a terminal
+> classification: match, mismatch, absent, or duplicate. When the evidence is
+> insufficient — when the provider is silent past the SLA — V1 declares
+> EPISTEMIC_STALEMATE and routes the case for investigation."
 
-## The Safe Execution (Good LLM Output)
-**Action:** *Show the output for a valid proposal:*
-`H3 → admissible → ALLOW → 1 mutation → VERIFIED`
+> "The investigation layer uses a local LLM to form a hypothesis about what happened.
+> A boundary validator checks the hypothesis before anything runs. A deterministic
+> verifier queries the provider using only parameters from the trusted case — the
+> LLM cannot influence what is queried. V1 then reclassifies on the new evidence."
 
-**Speaker:** "The authorization triggers an atomic database mutation. Our verifier does a fresh read of the database to ensure the state actually changed. We successfully repaired the order with zero human intervention, generating an immutable provenance log to prove exactly why we did it."
+> "The LLM's only job is to decide what to look at. It never classifies a financial
+> outcome."
 
-## The Hallucination Defense (Bad LLM Output)
-**Action:** *Trigger the local Qwen3 model or a mocked adversarial payload:*
-`hallucinated evidence ID → INVARIANT_INVALID → NO_ACTION → 0 mutations`
+---
 
-**Speaker:** "But here is why this architecture is necessary. If we run a local LLM and it hallucinates an evidence ID, or if we feed it adversarial JSON, the semantic validator and deterministic control plane instantly reject it. The system fails safely. We remove the human bottleneck, but we keep the financial authority locked down."
+## Act 3 — Single-case demo (45 seconds)
 
-## The Replay & Race Defense (Concurrency)
-**Action:** *Show the TOCTOU race condition execution:*
-`ALLOW → concurrent state change → atomic UPDATE affects 0 rows → CONFLICT → 0 mutations`
+Run:
+```bash
+PYTHONPATH=. uv run python scripts/demo_runner.py
+```
 
-**Speaker:** "Finally, what if the system goes haywire? What if another process pays the order at the exact millisecond we try to fix it? Because our mutation is strictly bounded by atomic preconditions (`UPDATE ... WHERE status = 'UNPAID'`), hitting it with a race condition results in a safe `CONFLICT` rollback. The financial invariants hold."
+**Narrate while it runs:**
+
+> "This is a real EPISTEMIC_STALEMATE case — a refund was expected, the SLA has
+> expired, and the provider gave no confirmation. V1 declares stalemate."
+
+> "The investigator proposes querying the provider for the refund record. The
+> boundary validator approves the hypothesis — the evidence IDs and intent are
+> all valid. The verifier queries the provider. A refund record comes back."
+
+> "V1 re-runs on the new evidence. VERIFIED, EXECUTED, matching amount: MATCH.
+> The case is resolved."
+
+**If running in REPLAY mode** (Ollama not available):
+> "We're running in replay mode — the investigator uses a deterministic fallback
+> hypothesis rather than the live LLM. The evaluation result is identical."
+
+---
+
+## Act 4 — Batch evaluation (45 seconds)
+
+Run:
+```bash
+PYTHONPATH=. uv run python scripts/run_batch_control.py
+```
+
+**Narrate while it runs:**
+
+> "50 predefined financial scenarios. 8 classification types. 5 that require
+> investigation."
+
+**After output:**
+
+> "39 were direct matches — V1 resolved them without investigation. 9 more were
+> resolved after investigation — the verifier queried the provider and V1
+> reclassified on new evidence. 2 remain explicitly unresolved."
+
+> "This one — REC-049 — the provider returned a 503 during investigation. We
+> don't know the answer, and we say so. The system preserves EPISTEMIC_STALEMATE
+> rather than manufacturing a resolution."
+
+> "This one — REC-050 — the LLM's hypothesis referenced an evidence ID that
+> doesn't exist in the bounded case. D4 rejected it. No provider query ran."
+
+> "50 cases, 50 correct final classifications against independently defined
+> ground truth. 96% resolution rate. 2 honest stalemates."
+
+---
+
+## Likely judge questions and answers
+
+**Q: What happens when the LLM is wrong?**
+> "Two failure modes. If the hypothesis references a fabricated evidence ID or an
+> unsupported intent, D4 rejects it — no provider query runs, case stays stalemate.
+> If the hypothesis is valid but the provider confirms nothing, V1 stays stalemate.
+> The LLM cannot cause a wrong classification."
+
+**Q: What would connecting to real Razorpay look like?**
+> "The `RazorpayClient` is already implemented. The demo runner has a LIVE mode
+> flag. You'd set the API credentials in the environment and remove the mock
+> transport. No architectural change."
+
+**Q: What's missing for production?**
+> "A durable case store — currently everything is in-memory. An operator
+> interface to review unresolved exceptions. Multi-provider support beyond
+> Razorpay. That's appropriate post-hackathon scope."
+
+**Q: Why not just let the LLM classify directly?**
+> "The same reason you don't let an analyst approve their own journal entries.
+> Financial classification needs to be auditable and reproducible. An LLM output
+> is probabilistic and not deterministic — you can't sign off on it. V1's
+> output is a pure function of the evidence. That's what makes it auditable."
+
+---
+
+## What NOT to say
+
+- Do not claim the 96% resolution rate applies to real financial data.
+- Do not say "the LLM was caught hallucinating" — the C5 rejection was a
+  controlled adversarial injection, not an organic model failure.
+- Do not claim the system is production-ready.
+- Do not compare to the old 40% metric from a different evaluation run.

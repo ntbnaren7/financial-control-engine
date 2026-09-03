@@ -1,157 +1,218 @@
-# Financial Control Engine (FCE)
+# Financial Control Engine
 
-**FCE does not give an AI agent permission to fix financial data. It uses AI to investigate a deterministically detected discrepancy, then requires an independent control plane to authorize a narrowly bounded repair.**
+**Track 4 — AI Finance Controller**
 
-## What is FCE?
-The Financial Control Engine (FCE) is a proof-of-concept pipeline demonstrating **autonomous repair within a deterministic, pre-authorized control boundary**. It is designed specifically to protect the integrity of financial systems while eliminating human bottlenecks in operations. 
+> **AI investigates financial uncertainty. Deterministic controls decide financial truth.**
+
+---
 
 ## The Problem
-Financial systems accumulate state discrepancies continuously. A webhook drops, a network request times out, or an asynchronous process fails. The money moves, but the system doesn't know it.
 
-Currently, humans sit between the detection of a discrepancy and its correction. We tolerate this because autonomous mutation of financial state is dangerous. If a script blindly fixes a payment status based on a bad rule, it could cause millions in losses or regulatory fines. 
+Payment providers deliver refund status through webhooks that can be lost, delayed, or
+contradictory. When they are, finance teams face a queue of unresolved cases:
 
-## Core Thesis
-**Rules are excellent at enforcing known invariants but poor at explaining heterogeneous evidence when the failure mode isn't fully encoded. LLMs are good at synthesizing heterogeneous evidence but unsafe as financial authorities.**
+- Was the refund actually executed?
+- Did the provider drop it?
+- Was a different amount refunded?
 
-Use AI where ambiguity and evidence synthesis exist. Use deterministic systems where financial authority exists.
+Today, resolving each case requires a human to query the provider, read the response,
+and make a judgement call. At scale, this is expensive and slow.
 
-## The Hero Incident
-Consider a single story:
-1. A customer attempts to pay ₹5,000 via Razorpay.
-2. The payment succeeds and is `CAPTURED` at the provider.
-3. The webhook fails to reach the merchant, leaving the internal order stuck as `UNPAID`.
-4. The customer is angry, the goods aren't shipped, and operations teams have to manually hunt down the logs, verify the Razorpay dashboard, and click "Force Paid."
+## What This Engine Does
 
-FCE detects, investigates, authorizes, and safely repairs this exact incident asynchronously, proving the problem can be solved without human intervention.
+The Financial Control Engine runs a closed reconciliation loop over financial records:
+
+1. **Classify** every case deterministically — match, mismatch, or uncertain.
+2. **Investigate** uncertain cases using a local LLM to form a hypothesis.
+3. **Validate** the hypothesis at a hard boundary before any external action.
+4. **Query** the provider deterministically — using only parameters from the trusted case.
+5. **Reclassify** on the new evidence.
+6. **Report** match rate, resolution rate, and an honest unresolved exception list.
+
+The LLM's only role is to decide *what to look at*. It never classifies a financial
+outcome and never receives financial authority.
+
+---
 
 ## Architecture
-FCE physically isolates the AI from the database.
 
-```mermaid
-graph TD
-    %% Styling
-    classDef deterministic fill:#1e40af,stroke:#60a5fa,stroke-width:2px,color:white;
-    classDef untrusted fill:#b91c1c,stroke:#f87171,stroke-width:2px,color:white;
-    classDef database fill:#374151,stroke:#9ca3af,stroke-width:2px,color:white;
-    classDef neutral fill:#4b5563,stroke:#9ca3af,color:white;
-
-    %% Nodes
-    WH([Provider / Merchant Evidence]):::neutral
-    DB[(Financial Database)]:::database
-    Prov([Immutable Provenance Log]):::neutral
-
-    subgraph Deterministic Authority Zone
-        M3[M3: Deterministic Detection]:::deterministic
-        Validator[Strict Invariant Validator]:::deterministic
-        Control[Deterministic Control Plane]:::deterministic
-        Action[Atomic Recovery Action]:::deterministic
-        Verify[Independent Verification]:::deterministic
-    end
-
-    subgraph Untrusted AI Zone
-        M4[M4: LLM Investigation Engine]:::untrusted
-    end
-
-    %% Flow
-    WH --> M3
-    M3 -->|Discrepancy Detected| M4
-    
-    M4 -->|JSON Proposal| Validator
-    Validator -->|Admissible Proposal| Control
-    Validator -.->|Invalid/Hallucinated| Reject([Reject: NO_ACTION]):::neutral
-
-    Control -->|Evaluate Preconditions| Action
-    Control -->|Emit| Prov
-    Action -->|UPDATE WHERE status='UNPAID'| DB
-    Action --> Verify
-    Verify -->|Fresh State Read| DB
+```
+Provider Events
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│                   State Engine                       │
+│   ProviderObservation → ReconstructedState           │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│              V1 Deterministic Kernel                 │
+│   reconcile(expectation, state) → DiscrepancyType    │
+│                                                      │
+│   MATCH / VALUE_MISMATCH / ABSENT_EXECUTION /        │
+│   ORPHANED_EXECUTION / EXCESS_EFFECT /               │
+│   IN_FLIGHT_PENDING / EPISTEMIC_STALEMATE            │
+└──────────┬──────────────────────┬───────────────────┘
+           │                      │
+     Resolved                EPISTEMIC_STALEMATE
+     (record)                     │
+                                  ▼
+                    ┌─────────────────────────────┐
+                    │  D2  Format bounded input    │
+                    │  D3  LLM hypothesis          │◀── LLM boundary
+                    │  D4  Validate references     │    (read-only)
+                    │  D5  Provider query          │
+                    └──────────────┬──────────────┘
+                                   │ new Evidence
+                                   ▼
+                          V1 Kernel (re-runs)
+                                   │
+                          Final classification
 ```
 
-## The Trust Boundary
-The critical trust boundary is between **M4 (Untrusted Investigation)** and **Deterministic Control**. 
+### The trust boundary
 
-The M3 engine (deterministic detection) surfaces discrepancies. The M4 LLM investigates. But M4's output is treated purely as untrusted advisory material. The Control Plane takes the LLM's hypothesis, strips away the rationale, performs an independent read of the deterministic evidence, and decides if an atomic repair is mathematically permissible. 
+**D4 is the hard boundary.** Any hypothesis that references a fabricated evidence ID,
+an out-of-scope intent, or an unsupported verification type is rejected before D5 runs.
+D5 derives all query parameters exclusively from the trusted `ReconciliationCase` —
+the LLM's text cannot influence what is queried.
 
-## Safety Guarantees
-FCE's architecture is rooted in production-minded engineering principles, empirically validated under tested scenarios against the following invariants:
-- **LLM cannot mutate state:** The AI only outputs a schema-validated JSON proposal.
-- **LLM output cannot bypass validation:** Semantic validation intercepts all hallucinated arguments.
-- **Mutation requires deterministic authorization:** Strict admissibility rules in the Control Plane govern execution.
-- **Atomic Preconditions:** Database changes execute via conditional `UPDATE` statements tied strictly to expected prior state (e.g. `WHERE status = 'UNPAID'`).
+V1 (`src/reconciliation/engine.py`) is a pure function. It has no network access, no
+side effects, and no awareness of the LLM's output. It classifies on state alone.
 
-## Empirical Validation
-We proved these invariants through rigorous local testing, carefully distinguishing between live LLM integration tests, deterministic boundary tests, and batch workloads.
+---
 
-### Finance Controller Batch Evaluation (Track 4 Breadth Proof)
-To prove the controller can process a finance-ops workload reliably, we ran a synthetic acceptance workload of 50 financial cases through the pipeline. The batch isolates controller measurement from LLM nondeterminism and proves 100% oracle conformance without a single unauthorized mutation.
+## Phase F Evaluation Results
 
-```text
-FINANCE CONTROLLER — BATCH ACCEPTANCE RUN
-══════════════════════════════════════════════════════
+```
+╔══════════════════════════════════════════════════════════╗
+║           FINANCIAL CONTROL BATCH REPORT                ║
+╚══════════════════════════════════════════════════════════╝
 
-INPUT
-  Records processed:                50
+  Records processed     50
+  Matched               39
+  Resolved exceptions   9
+  Unresolved            2
 
-RECONCILIATION
-  Reconciliation match rate:        27/50 = 54.0%
-  Consistent (no discrepancy):      27
-  Discrepant:                       23
-    Actionable (Authorized):         8
-    Rejected before M4/action:      15
+  Match rate            78%  (39/50)
+  Resolution rate       96%  (48/50)
 
-ORACLE CONFORMANCE (CLASSIFICATION)
-  Expected classifications:         50
-  Correct:                          50
-  Incorrect:                        0
-  Conformance:                      100.0%
+  ── Investigation Activity ──────────────────────────────
 
-ORACLE CONFORMANCE (CONTROLLER OUTCOME)
-  Expected outcomes:                50
-  Correct outcomes:                 50
-  Incorrect outcomes:               0
-  Conformance:                      100.0%
+  Stalemates routed     5
+    D4 boundary rejected  1
+    Provider verified     3
+      of which resolved   3
+      of which stalemate  0
+    Provider error        1
 
-CONTROL OUTCOMES
-  Automatically resolved:            8
-  Safely refused / rejected:        15
-  Conflicts (TOCTOU):                0
-  Verification failures:             0
+  ── Correctness vs Ground Truth ─────────────────────────
 
-OPERATIONS
-  M4 investigations:                 21
-  Financial mutations:               8
+  Correct classifications  50 / 50
 
-SAFETY
-  Unauthorized mutations:            0   ✓
-  False autonomous actions:          0   ✓
+  ── Unresolved Exceptions ───────────────────────────────
 
-UNRESOLVED EXCEPTION LIST
-  PAYMENT_NOT_CAPTURED     × 6  — provider not yet settled, no repair path
-  AMOUNT_MISMATCH          × 4  — amount delta detected, no repair path
-  CURRENCY_MISMATCH        × 3  — currency mismatch, no repair path
-  IDENTITY_UNKNOWN         × 2  — order identity cannot be verified
-
-EVALUATION THROUGHPUT
-  Processing time:        0.15 s
-  Evaluation throughput:  340.2 records/sec
-  Environment:            PostgreSQL (test isolated)
-  LLM:                    deterministic mock (canonical V1 demo runner — to be finalized in the V1 demo phase)
-══════════════════════════════════════════════════════
+  REC-049  C4_PROVIDER_OUTAGE    Provider returned 503 — stalemate preserved
+  REC-050  C5_BOUNDARY_REJECT    D4 rejected invalid evidence reference
 ```
 
-### The 1 -> 0 -> 0 Boundary Proof (Mocked & Deterministic)
-By isolating the control plane from LLM flakiness, we empirically validate the financial invariants hold under tested scenarios:
-- **Initial Authorized Mutation = 1:** The system successfully detects a stale order, processes an admissible proposal, strictly verifies the facts, and conditionally authorizes the mutation (validated against the defined adversarial suite, 50-record evaluation corpus, and modeled provider-failure scenarios).
-- **Replay Mutation = 0:** When fed duplicate webhooks or re-triggered on the identical incident, the deterministic `UNPAID` gate idempotently blocks secondary mutations.
-- **TOCTOU Race Mutation = 0:** When simulated under high-concurrency (Time-Of-Check to Time-Of-Use), the atomic database predicate catches the race condition and safely rolls back, returning a `CONFLICT` rather than a false positive.
+### What these numbers mean
 
-### The Hallucination Defense (Live Qwen3)
-**The strongest demonstration isn't when the AI gets the answer right. It's when the AI gets the answer wrong and the financial system still refuses to trust it.**
+| Metric | Value | What it measures |
+|---|---|---|
+| **50/50 correctness** | 100% | Accuracy against independently defined ground truth |
+| **96% resolution rate** | 48/50 | Operational resolution on the synthetic matrix |
+| **78% initial match rate** | 39/50 | Cases resolved by V1 before investigation |
+| **2 unresolved** | 4% | Deliberately retained uncertainty |
 
-In our adversarial runs, the local Qwen3 model was explicitly prompted to hallucinate evidence IDs. The semantic validator instantly intercepted the payload, and the financial system refused to authorize a repair. The AI failed safely. 
+**The 96% figure is a result on a synthetic evaluation matrix, not a real-world rate.**
 
-## Demo
-Please see our detailed demo narrative and walkthrough in `docs/DEMO_NARRATIVE.md` to see the exact CLI flow, or check out our presentation video.
+The 50/50 correctness result is a specification-driven accuracy claim: 50 financial
+scenarios were defined by their expected final outcome first; V1's classifications
+were compared against those predefined specifications independently.
+
+### Evaluation reproducibility
+
+The batch runner is anchored to the dataset's fixed seed timestamp
+(`2024-01-15T10:00:00Z`). All SLA deadlines are deterministic relative to that anchor.
+The 50/50 result reproduces at any future wall-clock time.
+
+---
+
+## Running the Evaluation
+
+```bash
+# Install dependencies
+uv sync
+
+# Generate the 50-record synthetic dataset
+uv run python scripts/generate_batch_data.py
+
+# Run the full batch evaluation
+PYTHONPATH=. uv run python scripts/run_batch_control.py
+
+# Run the single-case investigation demo (Phase E)
+PYTHONPATH=. uv run python scripts/demo_runner.py
+
+# Run the test suite
+uv run pytest
+```
+
+---
+
+## Key Source Files
+
+| File | What it does |
+|---|---|
+| `src/reconciliation/engine.py` | V1 deterministic kernel — pure function, no I/O |
+| `src/reconciliation/models.py` | `DiscrepancyType` enum and `ReconciliationResult` |
+| `src/state/engine.py` | Reconstructs `ReconstructedState` from `ProviderObservation` |
+| `src/investigation/agent.py` | Local LLM investigator (D3) |
+| `src/investigation/validator.py` | D4 boundary validator |
+| `src/investigation/verifier.py` | D5 deterministic provider query |
+| `scripts/demo_runner.py` | Single-case EPISTEMIC_STALEMATE → resolution demo |
+| `scripts/run_batch_control.py` | 50-record batch evaluation with correctness report |
+| `scripts/generate_batch_data.py` | Synthetic dataset generator |
+| `tests/doubles/batch_mock_transport.py` | Per-case Razorpay mock for batch evaluation |
+
+---
+
+## What Is and Is Not Claimed
+
+### Claimed
+- V1 correctly classifies every financial state it can determine from available evidence.
+- The D4 boundary rejects hypotheses with fabricated evidence references.
+- The system preserves EPISTEMIC_STALEMATE when evidence is insufficient rather than
+  manufacturing a resolution.
+- 50/50 correctness on a specification-driven synthetic evaluation.
+- The LLM has no path to financial classification or provider mutation.
+
+### Not claimed
+- Real-world accuracy (not measured on real financial data).
+- Production readiness (no persistence layer, operator UI, or multi-tenant support).
+- The C5 adversarial case represents an organic LLM failure in live evaluation —
+  it is a controlled injection to verify D4's boundary validation.
+
+---
 
 ## Limitations
-Please review the [V0 Threat Model](docs/THREAT_MODEL_V0.md) for explicit boundaries on what this architecture guarantees and what it deliberately defers (such as distributed durable state guarantees, arbitrary multi-tenant architectures, or production-scale async queues). FCE is a proof-of-concept for the trust boundary, not a drop-in enterprise platform.
+
+- **Synthetic evaluation only.** The 50-record matrix uses programmatically generated
+  cases. Real refund pipelines will produce distributions and edge cases not represented.
+- **Ollama dependency for live mode.** Without a running `qwen3:8b` instance, the
+  demo and batch runner fall back to a deterministic REPLAY hypothesis. The evaluation
+  result is identical in REPLAY mode.
+- **No persistence.** The engine processes records in memory. A production deployment
+  would require a durable case store and an outbox for provider queries.
+
+---
+
+## Test Suite
+
+```
+186 passed, 4 skipped
+```
+
+Covers: V1 kernel invariants, D4 boundary validation, D5 verifier, state engine,
+evidence normalization, reconciliation model properties, and integration slices.
