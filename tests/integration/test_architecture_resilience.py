@@ -255,13 +255,16 @@ async def test_worker_crashes_after_claiming_lease(base_worker_deps):
     ])
     
     crashing_inv = MagicMock(spec=Investigator)
-    crashing_inv.investigate = AsyncMock(side_effect=Exception("Simulated crash!"))
+    crashing_inv.investigate = AsyncMock(side_effect=BaseException("Simulated crash!"))
     worker1 = create_worker(deps, "worker_crash", client, crashing_inv)
     
     deps["evt_repo"].publish(ControlEventType.OBSERVATION_INGESTED, {})
     await worker1.poll_and_process()
     
-    await worker1.poll_and_process()
+    try:
+        await worker1.poll_and_process()
+    except BaseException:
+        pass
         
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()

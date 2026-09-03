@@ -485,6 +485,9 @@ class PostgresActiveIncidentRepository:
             if not record:
                 return None
                 
+            if record.state in [InvestigationState.ESCALATED, InvestigationState.COMPLETED]:
+                return None
+                
             # Can acquire if no lease, lease expired, or owner matches
             if record.lease_expires_at is None or record.lease_expires_at < now or record.lease_owner == worker_id:
                 record.lease_owner = worker_id
@@ -561,7 +564,7 @@ class PostgresActiveIncidentRepository:
                 ).delete()
                 session.commit()
 
-    def commit_verification_success(self, active_subject: str, discrepancy_reason: str, new_evidence: List["Evidence"], new_observations: List["Observation"]) -> None:
+    def commit_verification_success(self, active_subject: str, discrepancy_reason: str, new_evidence: List["Evidence"], new_observations: List["Observation"], escalate: bool = False) -> None:
         """
         Atomically persists new evidence, upserts new observations, releases the incident,
         and publishes the OBSERVATION_INGESTED event to trigger re-reconciliation.
@@ -620,11 +623,21 @@ class PostgresActiveIncidentRepository:
                 )
                 session.execute(obs_stmt)
                 
-            # 3. Release Incident
-            session.query(ActiveIncidentIdempotencyRecord).filter_by(
-                active_subject=active_subject,
-                discrepancy_reason=discrepancy_reason
-            ).delete()
+            # 3. Release or Escalate Incident
+            if escalate:
+                record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                    active_subject=active_subject,
+                    discrepancy_reason=discrepancy_reason
+                ).first()
+                if record:
+                    record.state = InvestigationState.ESCALATED
+                    record.lease_owner = None
+                    record.lease_expires_at = None
+            else:
+                session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                    active_subject=active_subject,
+                    discrepancy_reason=discrepancy_reason
+                ).delete()
             
             # 4. Publish Event
             if new_observations:

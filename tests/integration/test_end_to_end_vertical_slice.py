@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+from typing import Dict, Any
 import uuid
 import structlog
 from datetime import datetime, timezone
@@ -56,7 +57,7 @@ def clean_db(postgres_engine):
 class MockDeterministicVerifier(DeterministicVerifier):
     """Mocks A4 Verification output for the vertical slice tests."""
     def __init__(self, override_observations=None):
-        super().__init__(razorpay_client=None)
+        super().__init__(razorpay_client=None)  # type: ignore
         self.override_observations = override_observations or []
         
     async def verify(self, hypothesis, context):
@@ -74,7 +75,7 @@ class MockDeterministicVerifier(DeterministicVerifier):
 
 class RejectingMockVerifier(DeterministicVerifier):
     def __init__(self):
-        super().__init__(razorpay_client=None)
+        super().__init__(razorpay_client=None)  # type: ignore
 
     async def verify(self, hypothesis, context):
         from src.domain.investigation.models import VerificationResult, VerificationStatus, VerificationIntent
@@ -90,7 +91,7 @@ class RejectingMockVerifier(DeterministicVerifier):
         )]
 
 class MockInvestigator(Investigator):
-    async def investigate(self, context_str: str) -> CausalHypothesis:
+    def investigate(self, agent_input: Dict[str, Any]) -> CausalHypothesis:
         return CausalHypothesis(
             hypothesis_id=str(uuid.uuid4()),
             claim="Mock claim",
@@ -176,7 +177,9 @@ async def test_hero_incident_vertical_slice(session_maker):
     
     # Verification
     # The external state should be repaired to PAID
-    assert simulator.read_merchant_order(order_id)["status"] == "PAID"
+    order = simulator.read_merchant_order(order_id)
+    assert order is not None
+    assert order["status"] == "PAID"
     
     # The incident should be RESOLVED
     # (Since ActiveIncident record gets deleted or released, let's check it's not locked)
@@ -196,12 +199,14 @@ async def test_unsafe_hypothesis_rejected(session_maker):
     await worker.poll_and_process()
     
     # External state remains untouched
-    assert simulator.read_merchant_order(order_id)["status"] == "UNPAID"
+    order = simulator.read_merchant_order(order_id)
+    assert order is not None
+    assert order["status"] == "UNPAID"
     
     # Incident should be ESCALATED
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value) # obs1 is the active_subject here
     assert active is not None
-    assert active.state == InvestigationState.ESCALATED
+    assert active.state == InvestigationState.ESCALATED # type: ignore
 
 @pytest.mark.asyncio
 async def test_unknown_action_outcome_forces_independent_decision(session_maker):
@@ -226,7 +231,7 @@ async def test_unknown_action_outcome_forces_independent_decision(session_maker)
     # Verify it was put into RETRY_PENDING
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == InvestigationState.RETRY_PENDING
+    assert active.state == InvestigationState.RETRY_PENDING # type: ignore
 
 @pytest.mark.asyncio
 async def test_duplicate_concurrent_action_idempotency(session_maker):
@@ -251,4 +256,6 @@ async def test_duplicate_concurrent_action_idempotency(session_maker):
     await worker.poll_and_process()
     
     # Final state is PAID
-    assert simulator.read_merchant_order(order_id)["status"] == "PAID"
+    order = simulator.read_merchant_order(order_id)
+    assert order is not None
+    assert order["status"] == "PAID"

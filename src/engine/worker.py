@@ -289,6 +289,26 @@ class V2ControlWorker:
                     all_new_evidence.extend(v_res.new_evidence)
                     all_new_observations.extend(v_res.new_observations)
                         
+            # VERIFY VERIFICATION OUTCOME
+            from src.engine.reconciliation_controls import evaluate_expectation_centric, evaluate_observation_centric
+            if context.expectation:
+                mid_reconciliation = evaluate_expectation_centric(context.expectation, context.observations + all_new_observations)
+            else:
+                mid_reconciliation = evaluate_observation_centric((context.observations + all_new_observations)[0], [])
+                
+            if mid_reconciliation and mid_reconciliation.outcome == ReconciliationOutcome.MATCH:
+                logger.info(f"Verification resolved the discrepancy. Committing and resolving incident {active_subject}.")
+                self._trigger_hook("before_commit")
+                self.incident_repo.commit_verification_success(
+                    active_subject=active_subject,
+                    discrepancy_reason=discrepancy_reason,
+                    new_evidence=all_new_evidence,
+                    new_observations=all_new_observations
+                )
+                from src.observability.metrics import inc_control_loop_outcome
+                inc_control_loop_outcome("resolved")
+                return
+
             # DECIDE: Evaluate Policy
             logger.info("Evaluating Policy to derive RecoveryIntent")
             combined_observations = context.observations + all_new_observations
@@ -298,7 +318,14 @@ class V2ControlWorker:
             
             if intent is None or intent.action == RecoveryAction.ESCALATE:
                 logger.info(f"Policy derived ESCALATE for {active_subject}: {intent.reason if intent else 'No safe intent could be derived'}")
-                self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
+                self.incident_repo.commit_verification_success(
+                    active_subject=active_subject,
+                    discrepancy_reason=discrepancy_reason,
+                    new_evidence=all_new_evidence,
+                    new_observations=all_new_observations,
+                    escalate=True
+                )
+                from src.observability.metrics import inc_control_loop_outcome
                 inc_control_loop_outcome("escalated")
                 return
                 

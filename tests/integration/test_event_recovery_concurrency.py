@@ -11,11 +11,17 @@ from src.storage.postgres_substrate import PostgresControlEventRepository, V2Con
 from src.storage.postgres.models import Base
 from src.config.settings import FCESettings
 
-TEST_DB_URL = FCESettings.load().database.url.get_secret_value()
+@pytest.fixture(scope="session")
+def postgres_url():
+    from testcontainers.postgres import PostgresContainer
+    with PostgresContainer("postgres:15-alpine") as postgres:
+        url = postgres.get_connection_url()
+        url = url.replace("postgresql+psycopg2", "postgresql+psycopg")
+        yield url
 
 @pytest.fixture
-def db_session_maker():
-    engine = create_engine(TEST_DB_URL)
+def db_session_maker(postgres_url):
+    engine = create_engine(postgres_url)
     Base.metadata.create_all(engine)
     sm = sessionmaker(bind=engine)
     yield sm

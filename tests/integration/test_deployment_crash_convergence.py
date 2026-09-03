@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Dummy settings for testing, must use file-backed sqlite or postgres for multiprocessing
-TEST_DB_URL = os.environ.get("DATABASE__URL", "sqlite:///test_fce.db")
+
 
 def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
     """
@@ -88,13 +88,24 @@ def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
                         evidence_ids=[],
                         verified_at=datetime.now(timezone.utc)
                     )]
+                from src.domain.core.models import Observation
+                new_obs = Observation(
+                    observation_id=uuid.uuid4().hex,
+                    provider="razorpay",
+                    provider_reference="ref1",
+                    observation_type="refund",
+                    observed_state="PROCESSED",
+                    observed_amount=100,
+                    currency="INR",
+                    evidence_ids=[]
+                )
                 return [VerificationResult(
                     verification_id=uuid.uuid4().hex,
                     intent=hypothesis.verification_intents[0],
                     status=VerificationStatus.SUCCEEDED,
                     failure_reason=None,
                     new_evidence=[],
-                    new_observations=[],
+                    new_observations=[new_obs],
                     evidence_ids=[],
                     verified_at=datetime.now(timezone.utc)
                 )]
@@ -122,9 +133,17 @@ def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
     asyncio.run(run())
 
 @pytest.fixture(scope="session")
-def db_session_maker():
+def postgres_url():
+    from testcontainers.postgres import PostgresContainer
+    with PostgresContainer("postgres:15-alpine") as postgres:
+        url = postgres.get_connection_url()
+        url = url.replace("postgresql+psycopg2", "postgresql+psycopg")
+        yield url
+
+@pytest.fixture(scope="session")
+def db_session_maker(postgres_url):
     # Setup real PG database or fallback
-    engine = create_engine(TEST_DB_URL)
+    engine = create_engine(postgres_url)
     from src.storage.postgres.models import Base
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
@@ -151,7 +170,7 @@ def clean_db(db_session_maker):
     "before_commit",
     "before_retry"
 ])
-def test_crash_convergence(db_session_maker, crash_hook):
+def test_crash_convergence(crash_hook, postgres_url, db_session_maker):
     """
     Deterministically tests that the worker correctly recovers from a hard crash
     at specific state boundaries.
@@ -195,7 +214,7 @@ def test_crash_convergence(db_session_maker, crash_hook):
     else:
         os.environ.pop("MOCK_VERIFIER_FAIL", None)
         
-    p = multiprocessing.Process(target=worker_process, args=(crash_hook, TEST_DB_URL, exp_id))
+    p = multiprocessing.Process(target=worker_process, args=(crash_hook, postgres_url, exp_id))
     p.start()
     p.join(timeout=10)
     
@@ -220,7 +239,7 @@ def test_crash_convergence(db_session_maker, crash_hook):
     # We pass os.environ for the settings to override event_stale_threshold_seconds to 0
     # for the test, ensuring immediate recovery of the abandoned event.
     os.environ["CONTROL_LOOP__EVENT_STALE_THRESHOLD_SECONDS"] = "0"
-    p2 = multiprocessing.Process(target=worker_process, args=("no_crash", TEST_DB_URL, exp_id))
+    p2 = multiprocessing.Process(target=worker_process, args=("no_crash", postgres_url, exp_id))
     p2.start()
     p2.join(timeout=10)
     os.environ.pop("CONTROL_LOOP__EVENT_STALE_THRESHOLD_SECONDS", None)
