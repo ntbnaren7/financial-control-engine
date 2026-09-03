@@ -164,6 +164,7 @@ async def run_demo() -> int:
         return 1
 
     expectation = exp_result.domain_object
+    assert expectation is not None, "Failed to ingest expectation"
     print(f"  OK  Expectation ingested    intent={INTENT_ID}  amount=Rs {AMOUNT/100:.2f}")
     print(f"      No provider observation (webhook never arrived)")
     print()
@@ -181,6 +182,7 @@ async def run_demo() -> int:
         return 1
 
     incident = incidents[0]
+    assert incident.discrepancy_type is not None, "Incident missing discrepancy type"
     print(f"  V1 classification   : {incident.discrepancy_type.value}")
     print(f"  Lifecycle state     : {incident.lifecycle_state.value}")
     print()
@@ -224,6 +226,7 @@ async def run_demo() -> int:
         (i for i in final_incidents if i.refund_intent_id == INTENT_ID), None
     )
     if final_incident:
+        assert final_incident.discrepancy_type is not None, "Final incident missing discrepancy type"
         print(f"  Final V1 result     : {final_incident.discrepancy_type.value}")
         print(f"  Lifecycle state     : {final_incident.lifecycle_state.value}")
     else:
@@ -243,9 +246,10 @@ async def run_demo() -> int:
         print("      LLM had no classification authority.")
         rc = 0
     else:
-        final_class = (
-            final_incident.discrepancy_type.value if final_incident else "UNKNOWN"
-        )
+        if final_incident and final_incident.discrepancy_type:
+            final_class = final_incident.discrepancy_type.value
+        else:
+            final_class = "UNKNOWN"
         print(f"  Final classification: {final_class}")
         print("  (Demo scenario did not reach MATCH -- check investigator mode.)")
         rc = 1
