@@ -19,7 +19,7 @@ class V2PolicyEvaluator:
         Explicit Observation Selection Policy.
         Establishes authoritative freshness based on temporal precedence and detects contradictions.
         """
-        provider_obs = [obs for obs in observations if obs.provider == provider]
+        provider_obs = [obs for obs in observations if (obs.provider or "").lower() == provider.lower()]
         if not provider_obs:
             return None
             

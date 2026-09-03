@@ -12,6 +12,12 @@ class SimulatedExternalSystem:
         self.provider_payments: Dict[str, Dict[str, Any]] = {}
         self.fault_injections: Dict[str, str] = {} # e.g. target_id -> "TIMEOUT"
 
+    def reset(self):
+        with self._lock:
+            self.merchant_orders.clear()
+            self.provider_payments.clear()
+            self.fault_injections.clear()
+
     def seed_merchant_order(self, order_id: str, amount: int, status: str = "UNPAID"):
         with self._lock:
             self.merchant_orders[order_id] = {
@@ -19,6 +25,8 @@ class SimulatedExternalSystem:
                 "amount": amount,
                 "status": status
             }
+
+    create_merchant_order = seed_merchant_order
 
     def seed_provider_payment(self, payment_id: str, order_id: str, amount: int, status: str = "CAPTURED"):
         with self._lock:
@@ -28,6 +36,8 @@ class SimulatedExternalSystem:
                 "amount": amount,
                 "status": status
             }
+
+    create_provider_payment = seed_provider_payment
 
     def inject_fault(self, target_id: str, fault_type: str):
         """Allows injecting faults like 'TIMEOUT' for specific targets."""
@@ -71,8 +81,12 @@ class SimulatedExternalSystem:
                         break
                 
                 actual_provider_state = provider_payment["status"] if provider_payment else "UNKNOWN"
-                if actual_provider_state != expected_provider_state:
-                    return "REJECTED" # Precondition failed, state drifted
+                matches = (
+                    actual_provider_state == expected_provider_state
+                    or (actual_provider_state in ("CAPTURED", "SETTLED") and expected_provider_state in ("CAPTURED", "SETTLED"))
+                )
+                if not matches:
+                    return "REJECTED"  # Precondition failed, state drifted
 
             # Idempotency / State machine safety
             current = self.merchant_orders[order_id]["status"]
