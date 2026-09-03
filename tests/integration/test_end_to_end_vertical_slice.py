@@ -27,7 +27,7 @@ from src.engine.actuator import SimulatedActuator
 from src.engine.observer import SimulatedObserver
 from src.engine.external_simulator import simulator
 from src.domain.investigation.models import CausalHypothesis, InvestigationDisposition, VerificationIntent
-from src.domain.core.models import Expectation, Observation, CorrelationKeys, BusinessStatus, ReconciliationOutcome, DiscrepancyReason
+from src.domain.core.models import Expectation, Observation, CorrelationKeys, BusinessStatus, ReconciliationOutcome, DiscrepancyReason, CanonicalStatus
 
 logger = structlog.get_logger()
 
@@ -118,8 +118,8 @@ def setup_hero_incident(session_maker):
     from src.domain.core.models import Observation
     from datetime import datetime, timezone, timedelta
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
-    obs1 = Observation(observation_id="obs1", provider="Merchant", provider_reference=order_id, observation_type="State", observed_state="UNPAID", observed_amount=5000, currency="INR", evidence_ids=[], observed_at=stale_time)
-    obs2 = Observation(observation_id="obs2", provider="Razorpay", provider_reference=payment_id, observation_type="State", observed_state="CAPTURED", observed_amount=5000, currency="INR", evidence_ids=[], observed_at=stale_time)
+    obs1 = Observation(observation_id="obs1", provider="Merchant", provider_reference=order_id, observation_type="State", canonical_status=CanonicalStatus.PENDING, observed_amount=5000, currency="INR", evidence_ids=[], observed_at=stale_time)
+    obs2 = Observation(observation_id="obs2", provider="Razorpay", provider_reference=payment_id, observation_type="State", canonical_status=CanonicalStatus.SETTLED, observed_amount=5000, currency="INR", evidence_ids=[], observed_at=stale_time)
     obs_repo.save(obs1)
     obs_repo.save(obs2)
     
@@ -177,8 +177,8 @@ async def test_hero_incident_vertical_slice(session_maker):
     recon_id, order_id, payment_id = setup_hero_incident(session_maker)
     
     # A4 Mock Verifier outputs the actual states observed from the provider
-    obs_merchant = Observation(provider="Merchant", provider_reference=order_id, observation_type="State", observed_state="UNPAID", observed_amount=5000, currency="INR", evidence_ids=[])
-    obs_provider = Observation(provider="Razorpay", provider_reference=payment_id, observation_type="State", observed_state="CAPTURED", observed_amount=5000, currency="INR", evidence_ids=[])
+    obs_merchant = Observation(provider="Merchant", provider_reference=order_id, observation_type="State", canonical_status=CanonicalStatus.PENDING, observed_amount=5000, currency="INR", evidence_ids=[])
+    obs_provider = Observation(provider="Razorpay", provider_reference=payment_id, observation_type="State", canonical_status=CanonicalStatus.SETTLED, observed_amount=5000, currency="INR", evidence_ids=[])
     
     worker, inc_repo, evt_repo = create_worker(session_maker, MockDeterministicVerifier([obs_merchant, obs_provider]))
     
@@ -227,8 +227,8 @@ async def test_unknown_action_outcome_forces_independent_decision(session_maker)
     # Inject TIMEOUT fault into the external simulator for the merchant order
     simulator.inject_fault(order_id, "TIMEOUT")
     
-    obs_merchant = Observation(provider="Merchant", provider_reference=order_id, observation_type="State", observed_state="UNPAID", observed_amount=5000, currency="INR", evidence_ids=[])
-    obs_provider = Observation(provider="Razorpay", provider_reference=payment_id, observation_type="State", observed_state="CAPTURED", observed_amount=5000, currency="INR", evidence_ids=[])
+    obs_merchant = Observation(provider="Merchant", provider_reference=order_id, observation_type="State", canonical_status=CanonicalStatus.PENDING, observed_amount=5000, currency="INR", evidence_ids=[])
+    obs_provider = Observation(provider="Razorpay", provider_reference=payment_id, observation_type="State", canonical_status=CanonicalStatus.SETTLED, observed_amount=5000, currency="INR", evidence_ids=[])
     
     worker, inc_repo, evt_repo = create_worker(session_maker, MockDeterministicVerifier([obs_merchant, obs_provider]))
     
@@ -255,8 +255,8 @@ async def test_duplicate_concurrent_action_idempotency(session_maker):
     simulator.update_merchant_order(order_id, "PAID")
     
     # But the V1 reconciliation engine produced a discrepancy based on OLD state
-    obs_merchant = Observation(provider="Merchant", provider_reference=order_id, observation_type="State", observed_state="UNPAID", observed_amount=5000, currency="INR", evidence_ids=[])
-    obs_provider = Observation(provider="Razorpay", provider_reference=payment_id, observation_type="State", observed_state="CAPTURED", observed_amount=5000, currency="INR", evidence_ids=[])
+    obs_merchant = Observation(provider="Merchant", provider_reference=order_id, observation_type="State", canonical_status=CanonicalStatus.PENDING, observed_amount=5000, currency="INR", evidence_ids=[])
+    obs_provider = Observation(provider="Razorpay", provider_reference=payment_id, observation_type="State", canonical_status=CanonicalStatus.SETTLED, observed_amount=5000, currency="INR", evidence_ids=[])
     
     worker, inc_repo, evt_repo = create_worker(session_maker, MockDeterministicVerifier([obs_merchant, obs_provider]))
     
