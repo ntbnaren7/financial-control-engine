@@ -1,6 +1,6 @@
 import structlog
 from typing import List, Optional
-from src.domain.core.models import Observation, Evidence, RecoveryIntent, RecoveryAction
+from src.domain.core.models import Observation, Evidence, RecoveryIntent, RecoveryAction, CanonicalStatus
 
 logger = structlog.get_logger()
 
@@ -32,12 +32,14 @@ class V2PolicyEvaluator:
         # Here we define ambiguity as multiple observations having the exact same authoritative timestamp
         # but asserting different states.
         for obs in provider_obs[1:]:
-            if obs.observed_at == newest.observed_at and obs.observed_state != newest.observed_state:
+            if obs.observed_at == newest.observed_at and obs.canonical_status != newest.canonical_status:
+                s1 = newest.canonical_status.value if hasattr(newest.canonical_status, "value") else str(newest.canonical_status)
+                s2 = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
                 logger.error("Contradictory evidence detected", 
                              provider=provider, 
                              timestamp=newest.observed_at.isoformat(), 
-                             state1=newest.observed_state, 
-                             state2=obs.observed_state)
+                             state1=s1, 
+                             state2=s2)
                 raise ContradictoryEvidenceError(f"Simultaneous contradictory claims for {provider} at {newest.observed_at}")
                 
         return newest
@@ -95,11 +97,14 @@ class V2PolicyEvaluator:
                            expected=expected_provider_ref, actual=provider_obs.provider_reference)
             return RecoveryIntent(action=RecoveryAction.ESCALATE, target_id=active_subject, reason="Cross-subject evidence binding failure")
             
-        merchant_state = merchant_obs.observed_state
-        provider_state = provider_obs.observed_state
+        merchant_status = merchant_obs.canonical_status
+        provider_status = provider_obs.canonical_status
         
-        # Policy: Hero Incident (CAPTURED + UNPAID)
-        if provider_state == "CAPTURED" and merchant_state == "UNPAID":
+        is_provider_settled = (provider_status == CanonicalStatus.SETTLED or provider_status == "CAPTURED")
+        is_merchant_pending = (merchant_status == CanonicalStatus.PENDING or merchant_status == "UNPAID")
+
+        # Policy: Hero Incident (SETTLED provider + PENDING merchant)
+        if is_provider_settled and is_merchant_pending:
             # Safety Check: Verify amounts match
             if provider_obs.observed_amount != merchant_obs.observed_amount:
                 logger.info("Policy derived ESCALATE: amount mismatch", 
@@ -109,6 +114,7 @@ class V2PolicyEvaluator:
                 
             # If everything checks out, repair the merchant state
             # Set expected_provider_state to enforce atomic Actuator TOCTOU safety
+            provider_state_str = provider_status.value if hasattr(provider_status, "value") else str(provider_status)
             logger.info("Policy derived REPAIR_MERCHANT_STATE", target_id=merchant_obs.provider_reference)
             return RecoveryIntent(
                 action=RecoveryAction.REPAIR_MERCHANT_STATE,
@@ -116,11 +122,11 @@ class V2PolicyEvaluator:
                 amount=provider_obs.observed_amount,
                 currency=provider_obs.currency,
                 reason="Provider captured payment but merchant is UNPAID.",
-                expected_provider_state=provider_state
+                expected_provider_state=provider_state_str
             )
             
         # Policy: Unknown provider outcome -> ESCALATE
-        if provider_state == "UNKNOWN" or provider_state == "TIMEOUT":
+        if provider_status in (CanonicalStatus.UNKNOWN, "UNKNOWN", "TIMEOUT"):
             logger.info("Policy derived ESCALATE: UNKNOWN provider state")
             return RecoveryIntent(
                 action=RecoveryAction.ESCALATE,
@@ -129,11 +135,13 @@ class V2PolicyEvaluator:
             )
             
         # Default: ESCALATE (Safe fallback for unhandled discrepancy combinations)
+        m_str = merchant_status.value if hasattr(merchant_status, "value") else str(merchant_status)
+        p_str = provider_status.value if hasattr(provider_status, "value") else str(provider_status)
         logger.info("Policy derived ESCALATE: Unhandled state combination", 
-                    merchant=merchant_state, 
-                    provider=provider_state)
+                    merchant=m_str, 
+                    provider=p_str)
         return RecoveryIntent(
             action=RecoveryAction.ESCALATE,
             target_id=active_subject,
-            reason=f"Unhandled state combination: Merchant={merchant_state}, Provider={provider_state}"
+            reason=f"Unhandled state combination: Merchant={m_str}, Provider={p_str}"
         )

@@ -14,7 +14,8 @@ from src.domain.core.models import (
     ReconciliationResult, 
     BusinessStatus, 
     ReconciliationOutcome,
-    CorrelationKeys
+    CorrelationKeys,
+    CanonicalStatus,
 )
 from src.storage.postgres.models import Base
 from src.storage.substrate_repo import ObservationRepository
@@ -38,26 +39,33 @@ class SubstrateExpectationRecord(Base):
         if dt and dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
             
-        return Expectation( # type: ignore
-            expectation_id=self.expectation_id, # type: ignore
-            domain=self.domain, # type: ignore
-            expected_state=self.expected_state, # type: ignore
-            expected_amount=self.expected_amount, # type: ignore
-            currency=self.currency, # type: ignore
-            source_system=self.source_system, # type: ignore
-            business_status=self.business_status, # type: ignore
-            correlation_keys=CorrelationKeys(**(self.correlation_keys or {})), # type: ignore
-            created_at=dt # type: ignore
+        status_val = self.expected_state
+        try:
+            canonical_status = CanonicalStatus(status_val)
+        except (ValueError, KeyError):
+            canonical_status = CanonicalStatus.UNKNOWN
+
+        return Expectation(  # type: ignore
+            expectation_id=self.expectation_id,  # type: ignore
+            domain=self.domain,  # type: ignore
+            expected_canonical_status=canonical_status,
+            expected_amount=self.expected_amount,  # type: ignore
+            currency=self.currency,  # type: ignore
+            source_system=self.source_system,  # type: ignore
+            business_status=self.business_status,  # type: ignore
+            correlation_keys=CorrelationKeys(**(self.correlation_keys or {})),  # type: ignore
+            created_at=dt  # type: ignore
         )
 
     @classmethod
     def from_domain(cls, exp: Expectation) -> "SubstrateExpectationRecord":
         from dataclasses import asdict
         c_keys = asdict(exp.correlation_keys) if exp.correlation_keys else {}
+        status_str = exp.expected_canonical_status.value if hasattr(exp.expected_canonical_status, "value") else str(exp.expected_canonical_status)
         return cls(
             expectation_id=exp.expectation_id,
             domain=exp.domain,
-            expected_state=exp.expected_state,
+            expected_state=status_str,
             expected_amount=exp.expected_amount,
             currency=exp.currency,
             source_system=exp.source_system,
@@ -128,32 +136,39 @@ class SubstrateObservationRecord(Base):
     )
 
     def to_domain(self) -> Observation:
-        return Observation( # type: ignore
-            observation_id=self.observation_id, # type: ignore
-            provider=self.provider, # type: ignore
-            provider_reference=self.provider_reference, # type: ignore
-            observation_type=self.observation_type, # type: ignore
-            observed_state=self.observed_state, # type: ignore
-            observed_amount=self.observed_amount, # type: ignore
-            currency=self.currency, # type: ignore
-            evidence_ids=self.evidence_ids, # type: ignore
-            correlation_keys=CorrelationKeys(**(self.correlation_keys or {})), # type: ignore
-            provider_event_id=self.provider_event_id, # type: ignore
-            provider_version=self.provider_version, # type: ignore
-            observed_at=self.observed_at, # type: ignore
-            ingestion_event_id=self.ingestion_event_id # type: ignore
+        status_val = self.observed_state
+        try:
+            canonical_status = CanonicalStatus(status_val)
+        except (ValueError, KeyError):
+            canonical_status = CanonicalStatus.UNKNOWN
+
+        return Observation(  # type: ignore
+            observation_id=self.observation_id,  # type: ignore
+            provider=self.provider,  # type: ignore
+            provider_reference=self.provider_reference,  # type: ignore
+            observation_type=self.observation_type,  # type: ignore
+            canonical_status=canonical_status,
+            observed_amount=self.observed_amount,  # type: ignore
+            currency=self.currency,  # type: ignore
+            evidence_ids=self.evidence_ids,  # type: ignore
+            correlation_keys=CorrelationKeys(**(self.correlation_keys or {})),  # type: ignore
+            provider_event_id=self.provider_event_id,  # type: ignore
+            provider_version=self.provider_version,  # type: ignore
+            observed_at=self.observed_at,  # type: ignore
+            ingestion_event_id=self.ingestion_event_id  # type: ignore
         )
 
     @classmethod
     def from_domain(cls, obs: Observation) -> "SubstrateObservationRecord":
         from dataclasses import asdict
         c_keys = asdict(obs.correlation_keys) if obs.correlation_keys else {}
+        status_str = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
         return cls(
             observation_id=obs.observation_id,
             provider=obs.provider,
             provider_reference=obs.provider_reference,
             observation_type=obs.observation_type,
-            observed_state=obs.observed_state,
+            observed_state=status_str,
             observed_amount=obs.observed_amount,
             currency=obs.currency,
             evidence_ids=obs.evidence_ids,
@@ -315,12 +330,13 @@ class PostgresObservationRepository(ObservationRepository):
         """
         from dataclasses import asdict
         c_keys = asdict(observation.correlation_keys) if observation.correlation_keys else {}
+        status_str = observation.canonical_status.value if hasattr(observation.canonical_status, "value") else str(observation.canonical_status)
         values = dict(
             observation_id=observation.observation_id,
             provider=observation.provider,
             provider_reference=observation.provider_reference,
             observation_type=observation.observation_type,
-            observed_state=observation.observed_state,
+            observed_state=status_str,
             observed_amount=observation.observed_amount,
             currency=observation.currency,
             evidence_ids=observation.evidence_ids,
@@ -336,7 +352,7 @@ class PostgresObservationRepository(ObservationRepository):
             .on_conflict_do_update(
                 constraint="uq_obs_instance_version",
                 set_={
-                    "observed_state": observation.observed_state,
+                    "observed_state": status_str,
                     "evidence_ids": observation.evidence_ids,
                     "observed_at": observation.observed_at,
                     "ingestion_event_id": observation.ingestion_event_id,
@@ -611,7 +627,7 @@ class PostgresActiveIncidentRepository:
                     .on_conflict_do_update(
                         constraint="uq_obs_instance_version",
                         set_={
-                            "observed_state": obs.observed_state,
+                            "observed_state": obs_status_str,
                             "evidence_ids": obs.evidence_ids,
                             "observed_at": obs.observed_at,
                             "ingestion_event_id": obs.ingestion_event_id,
