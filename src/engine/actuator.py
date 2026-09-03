@@ -14,7 +14,7 @@ class SimulatedActuator:
         
         if intent.action == RecoveryAction.REPAIR_MERCHANT_STATE:
             # In our hero incident, the merchant state is UNPAID, and we want to REPAIR it to PAID
-            result = simulator.update_merchant_order(intent.target_id, "PAID")
+            result = simulator.update_merchant_order(intent.target_id, "PAID", intent.expected_provider_state)
             return ActuationOutcome(result)
             
         elif intent.action == RecoveryAction.REFUND_PAYMENT:

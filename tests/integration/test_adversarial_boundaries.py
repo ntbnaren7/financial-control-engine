@@ -154,10 +154,12 @@ async def test_toctou_boundary(session_maker):
     # We modify our MockActuator specifically for this test to assert it doesn't check the current state
     class TOCTOUActuator(MockActuator):
         def execute(self, intent):
-            # A real, safe actuator would do a pre-flight check or transactional lock against actual_external_state.
-            # But the V2ControlWorker just blindly executes.
-            super().execute(intent)
             from src.domain.core.models import ActuationOutcome
+            # Enforce atomic CAS precondition
+            if getattr(intent, "expected_provider_state", None) != actual_external_state["provider_state"]:
+                return ActuationOutcome.REJECTED
+                
+            super().execute(intent)
             return ActuationOutcome.SUCCESS
             
     actuator = TOCTOUActuator()
@@ -246,9 +248,11 @@ async def test_cross_subject_evidence(session_maker):
     exp_id = setup_hero_incident_data(session_maker, provider_ref="pay_hero_A")
     
     # The verifier maliciously/accidentally returns an observation for "pay_hero_B" instead of "pay_hero_A"
+    from datetime import datetime, timezone, timedelta
     wrong_subject_obs = Observation(
         observation_id=str(uuid.uuid4()), provider="Razorpay", provider_reference="pay_hero_B", 
-        observation_type="payment", observed_state="CAPTURED", observed_amount=500, currency="INR", evidence_ids=[]
+        observation_type="payment", observed_state="CAPTURED", observed_amount=500, currency="INR", evidence_ids=[],
+        observed_at=datetime.now(timezone.utc) + timedelta(minutes=5)
     )
     
     verifier = TOCTOUVerifier(wrong_subject_obs)
@@ -300,11 +304,13 @@ async def test_retry_resurrection(session_maker):
     # Simulate that the incident is currently in RETRY_PENDING
     with session_maker() as session:
         from src.storage.postgres_substrate import ActiveIncidentIdempotencyRecord, InvestigationState
+        from datetime import datetime, timezone
         inc = ActiveIncidentIdempotencyRecord(
             active_subject=exp_id,
             discrepancy_reason=DiscrepancyReason.STATE_MISMATCH.value,
             incident_id="inc_retry_123",
-            state=InvestigationState.RETRY_PENDING
+            state=InvestigationState.RETRY_PENDING,
+            created_at=datetime.now(timezone.utc)
         )
         session.add(inc)
         session.commit()
@@ -312,8 +318,12 @@ async def test_retry_resurrection(session_maker):
     # Now simulate that the provider actually processed it out-of-band!
     with session_maker() as session:
         from src.storage.postgres_substrate import SubstrateObservationRecord
-        obs = session.query(SubstrateObservationRecord).filter_by(provider="Razorpay").first()
-        obs.observed_state = "PROCESSED"
+        provider_obs = session.query(SubstrateObservationRecord).filter_by(provider="Razorpay").first()
+        provider_obs.observed_state = "PROCESSED"
+        
+        merchant_obs = session.query(SubstrateObservationRecord).filter_by(provider="Merchant").first()
+        merchant_obs.observed_state = "PROCESSED"
+        
         session.commit()
 
     verifier = TOCTOUVerifier(Observation(observation_id="dummy", provider="Razorpay", provider_reference="pay_retry", observation_type="payment", observed_state="PROCESSED", observed_amount=500, currency="INR", evidence_ids=[]))

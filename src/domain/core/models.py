@@ -105,4 +105,5 @@ class RecoveryIntent:
     amount: Optional[int] = None
     currency: Optional[str] = None
     reason: Optional[str] = None
+    expected_provider_state: Optional[str] = None
     intent_id: str = field(default_factory=lambda: str(uuid.uuid4()))

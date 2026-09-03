@@ -314,7 +314,7 @@ class V2ControlWorker:
             combined_observations = context.observations + all_new_observations
             combined_evidence = context.evidence_records + all_new_evidence
             
-            intent = self.policy.evaluate(active_subject, discrepancy_reason, combined_observations, combined_evidence)
+            intent = self.policy.evaluate(active_subject, discrepancy_reason, combined_observations, combined_evidence, context)
             
             if intent is None or intent.action == RecoveryAction.ESCALATE:
                 logger.info(f"Policy derived ESCALATE for {active_subject}: {intent.reason if intent else 'No safe intent could be derived'}")

@@ -106,6 +106,7 @@ class MockInvestigator(Investigator):
 def setup_hero_incident(session_maker):
     recon_repo = PostgresReconciliationResultRepository(session_maker)
     evt_repo = PostgresControlEventRepository(session_maker)
+    obs_repo = PostgresObservationRepository(session_maker)
     
     order_id = "order_hero"
     payment_id = "pay_hero"
@@ -113,6 +114,14 @@ def setup_hero_incident(session_maker):
     # Setup initial state in our simulator (CAPTURED + UNPAID)
     simulator.seed_merchant_order(order_id, 5000, "UNPAID")
     simulator.seed_provider_payment(payment_id, order_id, 5000, "CAPTURED")
+    
+    from src.domain.core.models import Observation
+    from datetime import datetime, timezone, timedelta
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    obs1 = Observation(observation_id="obs1", provider="Merchant", provider_reference=order_id, observation_type="State", observed_state="UNPAID", observed_amount=5000, currency="INR", evidence_ids=[], observed_at=stale_time)
+    obs2 = Observation(observation_id="obs2", provider="Razorpay", provider_reference=payment_id, observation_type="State", observed_state="CAPTURED", observed_amount=5000, currency="INR", evidence_ids=[], observed_at=stale_time)
+    obs_repo.save(obs1)
+    obs_repo.save(obs2)
     
     # Seed the FCE database with the discrepancy
     recon_id = f"recon_{uuid.uuid4()}"

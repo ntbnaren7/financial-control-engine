@@ -49,8 +49,8 @@ class SimulatedExternalSystem:
                     return p
             return None
 
-    def update_merchant_order(self, order_id: str, new_status: str) -> str:
-        """Returns SUCCESS, TIMEOUT_UNKNOWN, or REJECTED"""
+    def update_merchant_order(self, order_id: str, new_status: str, expected_provider_state: Optional[str] = None) -> str:
+        """Returns SUCCESS, TIMEOUT_UNKNOWN, or REJECTED. Implements atomic CAS against provider state."""
         with self._lock:
             fault = self.fault_injections.get(order_id)
             if fault == "TIMEOUT":
@@ -60,6 +60,19 @@ class SimulatedExternalSystem:
 
             if order_id not in self.merchant_orders:
                 return "REJECTED" # Not found
+                
+            # Atomic CAS (Compare-And-Swap) precondition check
+            if expected_provider_state:
+                # Find the corresponding provider payment
+                provider_payment = None
+                for p in self.provider_payments.values():
+                    if p["order_id"] == order_id:
+                        provider_payment = p
+                        break
+                
+                actual_provider_state = provider_payment["status"] if provider_payment else "UNKNOWN"
+                if actual_provider_state != expected_provider_state:
+                    return "REJECTED" # Precondition failed, state drifted
 
             # Idempotency / State machine safety
             current = self.merchant_orders[order_id]["status"]
