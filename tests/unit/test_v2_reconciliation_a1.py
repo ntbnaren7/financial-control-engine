@@ -151,5 +151,6 @@ def test_unexpected_execution():
         evidence_ids=[]
     )
     result = evaluate_observation_centric(obs, [])
+    assert result is not None
     assert result.outcome == ReconciliationOutcome.DISCREPANCY
     assert result.discrepancy_reason == DiscrepancyReason.UNEXPECTED_EXECUTION

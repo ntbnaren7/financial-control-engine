@@ -606,12 +606,13 @@ class PostgresActiveIncidentRepository:
             # 2. Upsert Observations
             for obs in new_observations:
                 c_keys = asdict(obs.correlation_keys) if obs.correlation_keys else {}
+                obs_status_str = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
                 obs_values = dict(
                     observation_id=obs.observation_id,
                     provider=obs.provider,
                     provider_reference=obs.provider_reference,
                     observation_type=obs.observation_type,
-                    observed_state=obs.observed_state,
+                    observed_state=obs_status_str,
                     observed_amount=obs.observed_amount,
                     currency=obs.currency,
                     evidence_ids=obs.evidence_ids,
