@@ -62,13 +62,13 @@ def evaluate_expectation_centric(
         
     latest_obs = executions[0].get_latest_observation()
     
-    # 3. Evaluate terminal state
-    if latest_obs.observed_state != expectation.expected_state:
+    # 4. State Mismatch
+    if latest_obs.canonical_status != expectation.expected_canonical_status:
         return ReconciliationResult(
             expectation_id=expectation.expectation_id,
             observation_ids=observation_ids,
             outcome=ReconciliationOutcome.DISCREPANCY,
-            reconciliation_reason=f"Expected {expectation.expected_state}, observed {latest_obs.observed_state}",
+            reconciliation_reason=f"Expected {expectation.expected_canonical_status.value}, observed {latest_obs.canonical_status.value}",
             discrepancy_reason=DiscrepancyReason.STATE_MISMATCH
         )
         

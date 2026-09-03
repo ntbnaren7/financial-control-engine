@@ -137,9 +137,10 @@ def format_context_for_investigation(context: InvestigationContext) -> Dict[str,
     expected_state_dict: Dict[str, Any] | None = None
     if context.expectation is not None:
         exp = context.expectation
+        expected_state_str = exp.expected_canonical_status.value if hasattr(exp.expected_canonical_status, "value") else str(exp.expected_canonical_status)
         expected_state_dict = {
             "domain":             exp.domain,
-            "expected_state":     exp.expected_state,
+            "expected_state":     expected_state_str,
             "amount":             str(exp.expected_amount),
             "currency":           exp.currency,
             "source_system":      exp.source_system,
@@ -149,11 +150,12 @@ def format_context_for_investigation(context: InvestigationContext) -> Dict[str,
     # ── Observations ─────────────────────────────────────────────────────────
     observations_list: List[Dict[str, Any]] = []
     for obs in context.observations:
+        observed_state_str = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
         observations_list.append({
             "observation_id":     obs.observation_id,
             "provider":           obs.provider,
             "observation_type":   obs.observation_type,
-            "observed_state":     obs.observed_state,
+            "observed_state":     observed_state_str,
             "amount":             str(obs.observed_amount),
             "currency":           obs.currency,
             "evidence_ids":       obs.evidence_ids,

@@ -8,7 +8,8 @@ from src.domain.core.models import (
     ReconciliationResult, 
     ReconciliationOutcome, 
     DiscrepancyReason, 
-    CorrelationKeys
+    CorrelationKeys,
+    CanonicalStatus,
 )
 from src.engine.evidence_assembler import EvidenceAssembler
 
@@ -34,7 +35,7 @@ def test_evidence_assembler():
     # Setup
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant",
@@ -54,7 +55,7 @@ def test_evidence_assembler():
         provider="razorpay",
         provider_reference="rfnd_123",
         observation_type="REFUND",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=450,
         currency="INR",
         evidence_ids=[ev1.evidence_id],

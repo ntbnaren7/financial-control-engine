@@ -1,12 +1,19 @@
 import pytest
 from datetime import datetime, timezone, timedelta
-from src.domain.core.models import Expectation, Observation, CorrelationKeys, ReconciliationOutcome, DiscrepancyReason
+from src.domain.core.models import (
+    Expectation,
+    Observation,
+    CorrelationKeys,
+    ReconciliationOutcome,
+    DiscrepancyReason,
+    CanonicalStatus,
+)
 from src.engine.reconciliation_controls import evaluate_expectation_centric, evaluate_observation_centric
 
 def test_absent_execution():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant",
@@ -19,7 +26,7 @@ def test_absent_execution():
 def test_sla_breach():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant",
@@ -33,7 +40,7 @@ def test_sla_breach():
 def test_duplicate_execution():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant"
@@ -42,7 +49,7 @@ def test_duplicate_execution():
         provider="razorpay",
         provider_reference="pay_123", 
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[]
@@ -51,7 +58,7 @@ def test_duplicate_execution():
         provider="razorpay",
         provider_reference="pay_456", 
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[]
@@ -63,7 +70,7 @@ def test_duplicate_execution():
 def test_observation_multiplicity_is_not_duplicate_execution():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant"
@@ -72,7 +79,7 @@ def test_observation_multiplicity_is_not_duplicate_execution():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="PROCESSING",
+        canonical_status=CanonicalStatus.PENDING,
         observed_amount=500,
         currency="INR",
         evidence_ids=[],
@@ -82,7 +89,7 @@ def test_observation_multiplicity_is_not_duplicate_execution():
         provider="razorpay",
         provider_reference="pay_123", 
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[],
@@ -94,7 +101,7 @@ def test_observation_multiplicity_is_not_duplicate_execution():
 def test_state_mismatch():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant"
@@ -103,7 +110,7 @@ def test_state_mismatch():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="FAILED",
+        canonical_status=CanonicalStatus.FAILED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[]
@@ -115,7 +122,7 @@ def test_state_mismatch():
 def test_amount_mismatch():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant"
@@ -124,7 +131,7 @@ def test_amount_mismatch():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=450,
         currency="INR",
         evidence_ids=[]
@@ -138,7 +145,7 @@ def test_unexpected_execution():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[]

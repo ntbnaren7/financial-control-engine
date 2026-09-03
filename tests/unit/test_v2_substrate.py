@@ -2,7 +2,15 @@ import pytest
 from datetime import datetime, timezone
 import uuid
 
-from src.domain.core.models import Expectation, Observation, Evidence, BusinessStatus, ReconciliationResult, ReconciliationOutcome
+from src.domain.core.models import (
+    Expectation,
+    Observation,
+    Evidence,
+    BusinessStatus,
+    ReconciliationResult,
+    ReconciliationOutcome,
+    CanonicalStatus,
+)
 from src.storage.substrate_repo import MemoryObservationRepository, MemoryExpectationRepository
 from src.engine.v2_reconciliation import reconcile
 
@@ -14,7 +22,7 @@ def test_observation_identity_in_memory_repo():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="PROCESSING",
+        canonical_status=CanonicalStatus.PENDING,
         observed_amount=500,
         currency="INR",
         evidence_ids=["ev_1"],
@@ -25,7 +33,7 @@ def test_observation_identity_in_memory_repo():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=500,
         currency="INR",
         evidence_ids=["ev_2"],
@@ -41,7 +49,7 @@ def test_observation_identity_in_memory_repo():
 def test_reconciliation_contract_naive_match():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant_ledger"
@@ -51,7 +59,7 @@ def test_reconciliation_contract_naive_match():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="PROCESSED",
+        canonical_status=CanonicalStatus.SETTLED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[]
@@ -64,7 +72,7 @@ def test_reconciliation_contract_naive_match():
 def test_reconciliation_contract_discrepancy():
     exp = Expectation(
         domain="Refund",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=500,
         currency="INR",
         source_system="merchant_ledger"
@@ -74,7 +82,7 @@ def test_reconciliation_contract_discrepancy():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="refund",
-        observed_state="FAILED",
+        canonical_status=CanonicalStatus.FAILED,
         observed_amount=500,
         currency="INR",
         evidence_ids=[]

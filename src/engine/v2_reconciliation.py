@@ -11,12 +11,12 @@ def reconcile(expectation: Expectation, candidate_observations: List[Observation
     """
     observation_ids = [obs.observation_id for obs in candidate_observations]
     
-    # A0 Placeholder logic: naive match on expected_state and expected_amount.
+    # Deterministic reconciliation matching on canonical_status and expected_amount.
     outcome = ReconciliationOutcome.DISCREPANCY
     reason = "No matching observation found for expectation"
     
     for obs in candidate_observations:
-        if obs.observed_state == expectation.expected_state and obs.observed_amount == expectation.expected_amount:
+        if obs.canonical_status == expectation.expected_canonical_status and obs.observed_amount == expectation.expected_amount:
             outcome = ReconciliationOutcome.MATCH
             reason = "Observation exactly matches expectation state and amount"
             break

@@ -11,6 +11,21 @@ class BusinessStatus(str, Enum):
     FAILED = "FAILED"
     EXPIRED = "EXPIRED"
 
+class CanonicalStatus(str, Enum):
+    """Normalized operational outcome of a Financial Operation."""
+    PENDING = "PENDING"
+    SETTLED = "SETTLED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+@dataclass(frozen=True)
+class FinancialEvent:
+    """Domain-specific financial adjustments or milestones (e.g., REFUND_ISSUED)."""
+    event_type: str
+    amount: Optional[int] = None
+    currency: Optional[str] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
 class ReconciliationOutcome(str, Enum):
     MATCH = "MATCH"
     DISCREPANCY = "DISCREPANCY"
@@ -34,12 +49,13 @@ class CorrelationKeys:
 
 @dataclass
 class Expectation:
-    """Internal financial intent or expected state."""
-    domain: str  # e.g., "Refund", "Payout"
-    expected_state: str
+    """Internal financial intent or expected state (the 'FinOp' target)."""
+    domain: str  # e.g., "PAYMENT", "PAYOUT", "REFUND"
+    expected_canonical_status: CanonicalStatus
     expected_amount: int
     currency: str
     source_system: str
+    expected_events: List[FinancialEvent] = field(default_factory=list)
     correlation_keys: CorrelationKeys = field(default_factory=CorrelationKeys)
     expectation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     business_status: BusinessStatus = BusinessStatus.CREATED
@@ -53,19 +69,21 @@ class Evidence:
     payload_hash: str
     raw_payload_ref: str
     observed_at: datetime
+    source_type: str = "UNKNOWN"  # e.g. "WEBHOOK", "API_POLL", "SETTLEMENT_FILE"
     ingested_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     evidence_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 @dataclass(frozen=True)
 class Observation:
-    """Immutable external financial report of state."""
+    """Immutable external financial report of reality."""
     provider: str
     provider_reference: str
-    observation_type: str
-    observed_state: str
+    observation_type: str  # e.g. "webhook_event", "api_response"
+    canonical_status: CanonicalStatus
     observed_amount: int
     currency: str
-    evidence_ids: List[str]
+    events: List[FinancialEvent] = field(default_factory=list)
+    evidence_ids: List[str] = field(default_factory=list)
     correlation_keys: CorrelationKeys = field(default_factory=CorrelationKeys)
     # Instance Identity fields
     provider_event_id: Optional[str] = None

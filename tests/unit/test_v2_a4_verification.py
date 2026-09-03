@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
 from src.domain.investigation.context import InvestigationContext
-from src.domain.core.models import Expectation, Observation, CorrelationKeys, ReconciliationResult, ReconciliationOutcome, DiscrepancyReason
+from src.domain.core.models import Expectation, Observation, CorrelationKeys, ReconciliationResult, ReconciliationOutcome, DiscrepancyReason, CanonicalStatus
 from src.domain.investigation.models import CausalHypothesis, InvestigationDisposition, VerificationIntent, VerificationStatus, VerificationRejectionReason
 from src.integrations.razorpay.client import RazorpayClient, ProviderNetworkError
 from src.investigation.verifier import DeterministicVerifier
@@ -41,7 +41,7 @@ def sample_context():
         ),
         expectation=Expectation(
             domain="REFUND",
-            expected_state="PROCESSED",
+            expected_canonical_status=CanonicalStatus.SETTLED,
             expected_amount=2000,
             currency="INR",
             source_system="OMS",
@@ -94,7 +94,7 @@ async def test_verifier_success(mock_razorpay_client, sample_hypothesis, sample_
     
     obs = result.new_observations[0]
     assert obs.provider == "razorpay"
-    assert obs.observed_state == "PROCESSED"
+    assert obs.canonical_status == CanonicalStatus.SETTLED
     assert obs.observed_amount == 2000
 
 @pytest.mark.asyncio
@@ -109,7 +109,7 @@ async def test_verifier_missing_parameters(mock_razorpay_client, sample_hypothes
         ),
         expectation=Expectation(
             domain="REFUND",
-            expected_state="PROCESSED",
+            expected_canonical_status=CanonicalStatus.SETTLED,
             expected_amount=2000,
             currency="INR",
             source_system="OMS",

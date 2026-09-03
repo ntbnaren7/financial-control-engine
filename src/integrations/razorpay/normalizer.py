@@ -1,7 +1,22 @@
 from typing import Any, Dict
-from src.domain.core.models import Observation, CorrelationKeys
+from src.domain.core.models import Observation, CorrelationKeys, CanonicalStatus
 from datetime import datetime, timezone
 import uuid
+
+def _map_razorpay_refund_status(raw_status: str) -> CanonicalStatus:
+    """Translate Razorpay refund status strings to the canonical FinOp vocabulary.
+
+    This is the adapter boundary — provider-specific strings stop here.
+    Downstream V2 code must never see raw Razorpay status strings.
+    """
+    normalized = (raw_status or "").upper()
+    if normalized in ("PROCESSED", "CAPTURED"):
+        return CanonicalStatus.SETTLED
+    if normalized in ("PENDING", "CREATED", "AUTHORIZED"):
+        return CanonicalStatus.PENDING
+    if normalized in ("FAILED", "CANCELLED", "REFUNDED"):
+        return CanonicalStatus.FAILED
+    return CanonicalStatus.UNKNOWN
 
 class RazorpayV2Normalizer:
     @staticmethod
@@ -10,7 +25,7 @@ class RazorpayV2Normalizer:
         provider_reference = raw_payload.get("id", "UNKNOWN")
         payment_id = raw_payload.get("payment_id")
         receipt = raw_payload.get("receipt")
-        status = raw_payload.get("status", "UNKNOWN").upper()
+        raw_status = raw_payload.get("status", "UNKNOWN")
         amount = raw_payload.get("amount", 0)
         currency = raw_payload.get("currency", "INR")
         created_at_ts = raw_payload.get("created_at")
@@ -21,7 +36,7 @@ class RazorpayV2Normalizer:
             provider="razorpay",
             provider_reference=provider_reference,
             observation_type="API_REFUND",
-            observed_state=status,
+            canonical_status=_map_razorpay_refund_status(raw_status),
             observed_amount=amount,
             currency=currency,
             evidence_ids=[evidence_id],

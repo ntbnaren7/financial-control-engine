@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 from src.domain.core.models import (
-    Expectation, Observation, Evidence, ReconciliationResult, DiscrepancyReason, ReconciliationOutcome
+    Expectation, Observation, Evidence, ReconciliationResult, DiscrepancyReason, ReconciliationOutcome, CanonicalStatus
 )
 from src.domain.investigation.context import InvestigationContext
 from src.domain.investigation.models import (
@@ -24,7 +24,7 @@ def sample_context() -> InvestigationContext:
         ),
         expectation=Expectation(
             domain="REFUND",
-            expected_state="PROCESSED",
+            expected_canonical_status=CanonicalStatus.SETTLED,
             expected_amount=2000,
             currency="INR",
             source_system="OMS",
@@ -35,7 +35,7 @@ def sample_context() -> InvestigationContext:
                 provider="razorpay",
                 provider_reference="rfnd_123",
                 observation_type="REFUND_EVENT",
-                observed_state="PROCESSED",
+                canonical_status=CanonicalStatus.SETTLED,
                 observed_amount=1500,
                 currency="INR",
                 evidence_ids=["ev_1"],
