@@ -31,3 +31,24 @@ class RazorpayPayment(BaseModel):
     error_step: Optional[str] = None
     error_reason: Optional[str] = None
     created_at: int
+
+class RazorpayRefund(BaseModel):
+    id: str
+    entity: str
+    amount: int
+    currency: str
+    payment_id: str
+    status: str
+    receipt: Optional[str] = None
+    notes: Optional[dict] = None
+    created_at: int
+    batch_id: Optional[str] = None
+    speed_processed: Optional[str] = None
+    speed_requested: Optional[str] = None
+
+class RazorpayWebhookEvent(BaseModel):
+    event: str
+    contains: list[str]
+    payload: dict
+    created_at: int
+    account_id: str
