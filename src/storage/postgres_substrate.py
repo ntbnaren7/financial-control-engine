@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 from typing import List, Optional
 
@@ -223,8 +223,9 @@ class V2ControlEventRecord(Base):
     event_id = Column(String, primary_key=True)
     event_type = Column(SQLEnum(ControlEventType), nullable=False)
     payload = Column(JSON, nullable=False)
-    status = Column(String, nullable=False, default="PENDING") # PENDING, PROCESSED, FAILED
+    status = Column(String, nullable=False, default="PENDING") # PENDING, IN_PROGRESS, PROCESSED, FAILED
     created_at = Column(DateTime(timezone=True), nullable=False)
+    leased_at = Column(DateTime(timezone=True), nullable=True)
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
 class ActiveIncidentIdempotencyRecord(Base):
@@ -691,9 +692,27 @@ class PostgresControlEventRepository:
             )
             for record in records:
                 record.status = "IN_PROGRESS"
+                record.leased_at = datetime.now(timezone.utc)
             session.commit()
             session.expunge_all()
             return records
+
+    def recover_stale_events(self, stale_threshold_seconds: int) -> int:
+        """
+        Atomically recover any IN_PROGRESS events that were leased longer than
+        `stale_threshold_seconds` ago, returning them to PENDING state.
+        """
+        with self.session_maker() as session:
+            stale_cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_threshold_seconds)
+            updated_count = session.query(V2ControlEventRecord).filter(
+                V2ControlEventRecord.status == "IN_PROGRESS",
+                V2ControlEventRecord.leased_at < stale_cutoff
+            ).update(
+                {"status": "PENDING", "leased_at": None},
+                synchronize_session=False
+            )
+            session.commit()
+            return updated_count
 
     def mark_processed(self, event_id: str) -> None:
         with self.session_maker() as session:

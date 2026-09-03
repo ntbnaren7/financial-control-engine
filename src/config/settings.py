@@ -43,6 +43,7 @@ class ControlLoopSettings(BaseModel):
     polling_interval_seconds: float = Field(default=1.0)
     max_retries: int = Field(default=3)
     retry_backoff_base_seconds: float = Field(default=2.0)
+    event_stale_threshold_seconds: int = Field(default=300)
 
 
 # ---------------------------------------------------------------------------

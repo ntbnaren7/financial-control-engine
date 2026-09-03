@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 import structlog
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from datetime import datetime, timezone
 
 from src.storage.postgres_substrate import (
@@ -45,7 +45,8 @@ class V2ControlWorker:
         investigator: Investigator,
         validator: OutputValidator,
         verifier: DeterministicVerifier,
-        settings: ControlLoopSettings = ControlLoopSettings()
+        settings: ControlLoopSettings = ControlLoopSettings(),
+        test_hooks: Optional[Dict[str, Callable[[], None]]] = None
     ):
         self.worker_id = worker_id
         self.event_repo = event_repo
@@ -60,16 +61,31 @@ class V2ControlWorker:
         self.validator = validator
         self.verifier = verifier
         self.settings = settings
+        self.test_hooks = test_hooks or {}
 
-        try:
-            from prometheus_client import start_http_server
-            start_http_server(8000)
-            logger.info("Prometheus metrics server started on port 8000")
-        except OSError:
-            # Port already in use (e.g., during tests with multiple workers)
-            pass
+    def _trigger_hook(self, name: str):
+        if name in self.test_hooks:
+            self.test_hooks[name]()
 
     async def poll_and_process(self, limit: int = 5):
+        # Start Prometheus metrics server once (idempotent — OSError means already running)
+        if not getattr(self, "_metrics_server_started", False):
+            try:
+                from prometheus_client import start_http_server
+                start_http_server(8000)
+                logger.info("Prometheus metrics server started on port 8000")
+                self._metrics_server_started = True
+            except OSError:
+                self._metrics_server_started = True  # already running, mark done
+            except Exception:
+                pass  # non-fatal: metrics unavailable
+
+        # 1. Recover stale events from crashed workers
+        recovered_count = self.event_repo.recover_stale_events(self.settings.event_stale_threshold_seconds)
+        if recovered_count > 0:
+            logger.warning(f"Recovered {recovered_count} stale events that were stuck IN_PROGRESS")
+
+        # 2. Poll for pending events
         events = self.event_repo.poll_pending_events(limit=limit)
         
         # Update gauges
@@ -103,7 +119,9 @@ class V2ControlWorker:
                 
                 self.event_repo.mark_processed(str(event.event_id))
             except Exception as e:
-                logger.exception(f"Error processing event {event.event_id}: {e}")
+                import traceback
+                print(f"Exception in process_event: {e}\n{traceback.format_exc()}", flush=True)
+                logger.error(f"Error processing event {event.event_id}: {str(e)}", exception=traceback.format_exc())
                 self.event_repo.mark_failed(str(event.event_id))
             finally:
                 elapsed = time.monotonic() - start_time
@@ -137,6 +155,7 @@ class V2ControlWorker:
         # 1. Try to initialize the state machine
         self.incident_repo.try_claim_incident(active_subject, discrepancy_reason, f"inc_{uuid.uuid4()}")
         
+        self._trigger_hook("before_lease_acquire")
         # 2. Acquire Lease (Locks for distributed safety)
         record = self.incident_repo.acquire_lease(
             active_subject, 
@@ -156,6 +175,7 @@ class V2ControlWorker:
             incident_id=record.incident_id
         )
         logger.info("Lease acquired, starting investigation")
+        self._trigger_hook("after_lease_acquire")
 
         # 3. Stale-event guard: re-evaluate current state before committing to investigation.
         # If a concurrent worker already resolved this discrepancy (e.g., the observation
@@ -199,12 +219,14 @@ class V2ControlWorker:
             hypothesis = None
             
             # A3: AI Investigation (Skip if already have a validated hypothesis from a previous retry)
+            self._trigger_hook("before_a3")
             if record.state == InvestigationState.VERIFYING and record.hypothesis_payload:
                 logger.info(f"Reusing existing hypothesis for {active_subject}")
                 hypothesis = CausalHypothesis.model_validate(record.hypothesis_payload)
             else:
                 import inspect
                 logger.info(f"Running A3 AI Investigation for {active_subject}")
+                self._trigger_hook("during_a3")
                 if inspect.iscoroutinefunction(self.investigator.investigate):
                     hypothesis = await self.investigator.investigate(formatted_input)
                 else:
@@ -224,7 +246,9 @@ class V2ControlWorker:
 
             # A4: Deterministic Verification
             logger.info(f"Running A4 Deterministic Verification for {active_subject}")
+            self._trigger_hook("before_a4")
             verification_results = await self.verifier.verify(hypothesis, context)
+            self._trigger_hook("after_a4")
             
             # Process Results
             all_new_evidence = []
@@ -242,6 +266,7 @@ class V2ControlWorker:
                         inc_control_loop_outcome("escalated")
                     else:
                         delay = 30 * (2 ** r_count)
+                        self._trigger_hook("before_retry")
                         self.incident_repo.schedule_retry(active_subject, discrepancy_reason, self.worker_id, delay)
                         inc_control_loop_outcome("retry_pending")
                     return # Stop processing further intents on this pass
@@ -259,6 +284,7 @@ class V2ControlWorker:
                     all_new_observations.extend(v_res.new_observations)
                         
             # Atomic Persistence: Save Evidence, Upsert Observations, Release Incident, and Publish Event
+            self._trigger_hook("before_commit")
             self.incident_repo.commit_verification_success(
                 active_subject=active_subject,
                 discrepancy_reason=discrepancy_reason,
