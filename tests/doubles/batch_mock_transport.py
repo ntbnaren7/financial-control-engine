@@ -54,7 +54,27 @@ class BatchMockTransport(httpx.AsyncBaseTransport):
             self.query_calls.append(payment_id)
             return await self._respond_for(payment_id, request)
 
-        # POST to create refund — not used in Phase F (investigation only)
+        if request.method == "POST" and url.endswith("refund"):
+            payment_id = url.split("/")[3]
+            import json
+            payload = json.loads(request.content)
+            
+            # Simulated synchronous response from provider accepting mutation
+            receipt = payload.get("receipt", "")
+            amount = payload.get("amount", 0)
+            
+            item = self._refund_item(payment_id, amount, "processed", receipt)
+            
+            # We must store this so subsequent GET /refunds will find it
+            # The transport didn't have a mutation store before, let's add one to self._routes
+            route = self._routes.get(payment_id, {"sub_case": "UNKNOWN", "expected_amount": amount, "intent_id": receipt})
+            if "mutated_refunds" not in route:
+                route["mutated_refunds"] = []
+            route["mutated_refunds"].append(item)
+            self._routes[payment_id] = route
+            
+            return httpx.Response(200, json=item, request=request)
+
         return httpx.Response(404, text="Not implemented in BatchMockTransport", request=request)
 
     async def _respond_for(self, payment_id: str, request: httpx.Request) -> httpx.Response:
@@ -77,8 +97,9 @@ class BatchMockTransport(httpx.AsyncBaseTransport):
             )
 
         elif sub_case == "C2_PROVIDER_DROPPED":
-            # Provider dropped the refund.  Nothing found.
-            return self._collection([], request)
+            # Provider dropped the refund.  Nothing found originally, but if mutated, return it.
+            mutated = route.get("mutated_refunds", [])
+            return self._collection(mutated, request)
 
         elif sub_case == "C3_AMOUNT_MISMATCH":
             # Provider refunded a different amount — intentional discrepancy.
@@ -97,15 +118,14 @@ class BatchMockTransport(httpx.AsyncBaseTransport):
             return httpx.Response(503, text="Service Unavailable", request=request)
 
         elif sub_case == "C5_BOUNDARY_REJECT":
-            # D4 rejects the hypothesis before D5 is called — this endpoint
-            # should never be reached for C5.  If it is, that is a bug.
             raise AssertionError(
                 f"BatchMockTransport: D5 was called for {sub_case}. "
                 "D4 should have rejected the hypothesis before reaching the verifier."
             )
 
-        else:
-            return self._collection([], request)
+        # Base case / mutation fallback: return any mutated refunds if they exist
+        mutated = route.get("mutated_refunds", [])
+        return self._collection(mutated, request)
 
     def _refund_item(self, payment_id: str, amount: int, status: str, receipt: str = "") -> dict:
         return {

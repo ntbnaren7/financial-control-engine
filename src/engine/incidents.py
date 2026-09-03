@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional, Dict, Tuple
 
-from src.reconciliation.models import ReconciliationResult, DiscrepancyType, ExpectedRefund
+from src.reconciliation.models import ReconciliationResult, DiscrepancyType, ExpectedRefund, FinancialExpectation
 from src.evidence.models import ProviderObservation, EntityType
 from src.domain.incidents.models import Incident, IncidentState
 from src.domain.incidents.projection import project_incident
@@ -17,12 +17,6 @@ from src.investigation.verifier import DeterministicVerifier
 from src.storage.incident_repo import IncidentRepository
 from src.engine.router import DiscrepancyRouter
 from src.engine.reconciliation import ReconciliationEngine
-
-# Extend IncidentState safely here if ACTION_REQUIRED doesn't exist yet,
-# or we just map it to ESCALATED or whatever exists.
-# Wait, `IncidentState` in `src.domain.incidents.models` has:
-# OPEN, MONITORING, ESCALATED, RESOLVED, CLOSED
-# We will use ESCALATED for all required actions for now.
 
 class IncidentEngine:
     def __init__(
@@ -42,45 +36,15 @@ class IncidentEngine:
     async def _investigate(
         self,
         case: ReconciliationCase,
-        sub_case_hint: str,
     ) -> Tuple[str, str, List[ProviderObservation]]:
         agent_input = format_case_for_investigation(case)
 
-        hypothesis: Optional[CausalHypothesis] = None
-        if self._investigator is None:
-            hypothesis = CausalHypothesis(
-                hypothesis="Provider status unknown; issuing query to establish execution state.",
-                supporting_evidence_ids=[],
-                contradicting_evidence_ids=[],
-                missing_evidence_description="Provider refund record",
-                confidence="LOW",
-                disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
-                verification_intent=VerificationIntent.QUERY_PROVIDER_REFUND,
-            )
+        hypothesis: CausalHypothesis
+        import inspect
+        if inspect.iscoroutinefunction(self._investigator.investigate):
+            hypothesis = await self._investigator.investigate(agent_input)
         else:
-            try:
-                hypothesis = await asyncio.to_thread(self._investigator.investigate, agent_input)
-            except Exception:
-                hypothesis = CausalHypothesis(
-                    hypothesis="Provider status unknown; issuing query to establish execution state.",
-                    supporting_evidence_ids=[],
-                    contradicting_evidence_ids=[],
-                    missing_evidence_description="Provider refund record",
-                    confidence="LOW",
-                    disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
-                    verification_intent=VerificationIntent.QUERY_PROVIDER_REFUND,
-                )
-
-        if sub_case_hint == "C5_BOUNDARY_REJECT":
-            hypothesis = CausalHypothesis(
-                hypothesis="Hypothesis referencing a fabricated evidence ID.",
-                supporting_evidence_ids=["hallucinated_evidence_ref_999"],
-                contradicting_evidence_ids=[],
-                missing_evidence_description="None",
-                confidence="LOW",
-                disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
-                verification_intent=VerificationIntent.QUERY_PROVIDER_REFUND,
-            )
+            hypothesis = await asyncio.to_thread(self._investigator.investigate, agent_input)
 
         validation = self._validator.validate(hypothesis.model_dump(), agent_input)
         if isinstance(validation, ValidationRejection):
@@ -164,16 +128,19 @@ class IncidentEngine:
         results: List[ReconciliationResult],
         grouped_expectations: Dict[str, ExpectedRefund],
         grouped_observations: Dict[str, List[ProviderObservation]],
-        sub_case_hints: Dict[str, str],
         now: datetime
     ) -> List[Incident]:
         for result in results:
-            if not DiscrepancyRouter.is_actionable_discrepancy(result):
-                continue
-                
             intent_id = result.intent_id
+            existing_incident = self._repo.get_by_intent_id(intent_id)
+
+            if not DiscrepancyRouter.is_actionable_discrepancy(result) and not existing_incident:
+                continue
+
             expectation = grouped_expectations.get(intent_id)
             if not expectation:
+                # We still need this fallback because the synthetic tests
+                # don't always provide an expectation. It's safe to keep as a general boundary guard.
                 expectation = ExpectedRefund(
                     expectation_id=str(uuid.uuid4()),
                     refund_intent_id=intent_id,
@@ -186,8 +153,13 @@ class IncidentEngine:
                     business_reason=""
                 )
 
-            incident = project_incident(result, expectation, self._repo.get_by_intent_id(intent_id))
+            incident = project_incident(result, expectation, existing_incident)
             if not incident:
+                if existing_incident and result.discrepancy_type == DiscrepancyType.MATCH:
+                    from dataclasses import replace
+                    resolved_inc = existing_incident.resolve(result)
+                    resolved_inc = replace(resolved_inc, discrepancy_type=result.discrepancy_type)
+                    self._repo.save(resolved_inc)
                 continue
 
             self._repo.save(incident)
@@ -202,8 +174,7 @@ class IncidentEngine:
                     created_at=now,
                 )
                 
-                sub_case_hint = sub_case_hints.get(intent_id, "")
-                outcome, notes, new_obs = await self._investigate(case, sub_case_hint)
+                outcome, notes, new_obs = await self._investigate(case)
                 
                 incident.discrepancy_history.append(f"Investigated: {outcome} - {notes}")
                 self._repo.save(incident)
@@ -232,14 +203,11 @@ class IncidentEngine:
                             if final_result.discrepancy_type == DiscrepancyType.EPISTEMIC_STALEMATE:
                                 incident = incident.transition_to(IncidentState.ESCALATED, reason="Stalemate persisted.")
                             else:
-                                # Concrete discrepancy achieved. State transitions to ESCALATED
-                                # denoting hand-off to the Action layer
                                 incident = incident.transition_to(IncidentState.ESCALATED, reason="Concrete discrepancy established.")
                             
                         self._repo.save(incident)
 
             else:
-                # Concrete discrepancy from start
                 incident = incident.transition_to(IncidentState.ESCALATED, reason="Initial discrepancy is actionable.")
                 self._repo.save(incident)
                 

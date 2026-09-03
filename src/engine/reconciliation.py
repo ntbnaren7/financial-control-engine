@@ -52,7 +52,13 @@ class ReconciliationEngine:
             repo.store_observation(obs)
 
         results = []
-        for exp, obs_list in repo.get_reconciliation_batch():
+        for exp, raw_obs_list in repo.get_reconciliation_batch():
+            # Deduplicate by event_id to prevent EXCESS_EFFECT on identical webhooks
+            unique_obs = {}
+            for o in raw_obs_list:
+                unique_obs[o.event_id] = o
+            obs_list = list(unique_obs.values())
+
             entity_id = exp.intent_id if exp else (obs_list[0].entity_id if obs_list else "unknown")
             # For now, default to REFUND_INTENT as the primary entity type.
             entity_type = EntityType.REFUND_INTENT if exp else (EntityType(obs_list[0].entity_type) if obs_list else EntityType.REFUND_INTENT)
