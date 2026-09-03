@@ -90,7 +90,7 @@ PYTHONPATH=. uv run python scripts/run_batch_control.py
 
 **After output:**
 
-> "39 were direct matches — V1 resolved them without investigation. 9 more were
+> "40 were direct matches — V1 resolved them without investigation. 8 more were
 > resolved after investigation — the verifier queried the provider and V1
 > reclassified on new evidence. 2 remain explicitly unresolved."
 
@@ -120,9 +120,11 @@ PYTHONPATH=. uv run python scripts/run_batch_control.py
 > transport. No architectural change."
 
 **Q: What's missing for production?**
-> "A durable case store — currently everything is in-memory. An operator
-> interface to review unresolved exceptions. Multi-provider support beyond
-> Razorpay. That's appropriate post-hackathon scope."
+> "An operator interface to review unresolved exceptions. Multi-provider support beyond
+> Razorpay. Real-world validation on live transaction data. The engine includes a
+> PostgreSQL-backed durable state and outbox (Phase J+), validated against 15 adversarial
+> invariants. That persistence layer is the integration test path — the demonstration
+> runs against an in-memory repository for Docker-free execution."
 
 **Q: Why not just let the LLM classify directly?**
 > "The same reason you don't let an analyst approve their own journal entries.

@@ -91,11 +91,11 @@ side effects, and no awareness of the LLM's output. It classifies on state alone
 ╚══════════════════════════════════════════════════════════╝
 
   Records processed     50
-  Matched               39
-  Resolved exceptions   9
+  Matched               40
+  Resolved exceptions   8
   Unresolved            2
 
-  Match rate            78%  (39/50)
+  Match rate            80%  (40/50)
   Resolution rate       96%  (48/50)
 
   ── Investigation Activity ──────────────────────────────
@@ -123,7 +123,7 @@ side effects, and no awareness of the LLM's output. It classifies on state alone
 |---|---|---|
 | **50/50 correctness** | 100% | Accuracy against independently defined ground truth |
 | **96% resolution rate** | 48/50 | Operational resolution on the synthetic matrix |
-| **78% initial match rate** | 39/50 | Cases resolved by V1 before investigation |
+| **80% initial match rate** | 40/50 | Cases resolved by V1 before investigation |
 | **2 unresolved** | 4% | Deliberately retained uncertainty |
 
 **The 96% figure is a result on a synthetic evaluation matrix, not a real-world rate.**
@@ -203,16 +203,16 @@ uv run pytest
 - **Ollama dependency for live mode.** Without a running `qwen3:8b` instance, the
   demo and batch runner fall back to a deterministic REPLAY hypothesis. The evaluation
   result is identical in REPLAY mode.
-- **No persistence.** The engine processes records in memory. A production deployment
-  would require a durable case store and an outbox for provider queries.
+- **Persistence layer (Phase J+).** The engine includes a PostgreSQL-backed `PostgresRepository`, `PostgresIncidentRepository`, and `PostgresActionOutbox` validated against 15 adversarial invariants via Testcontainers. The core demonstration uses an in-memory repository for Docker-free execution; the durable path is exercised by `tests/integration/test_core_invariants.py`.
 
 ---
 
 ## Test Suite
 
 ```
-186 passed, 4 skipped
+205 passed
 ```
 
 Covers: V1 kernel invariants, D4 boundary validation, D5 verifier, state engine,
-evidence normalization, reconciliation model properties, and integration slices.
+evidence normalization, reconciliation model properties, integration slices, and
+15 adversarial PostgreSQL invariants (requires Docker for Testcontainers).

@@ -23,7 +23,7 @@ reproducible.
 ### "Reporting its match rate"
 
 **What we report:**
-- **78% initial match rate** — 39/50 cases resolved by V1 before investigation
+- **80% initial match rate** — 40/50 cases resolved by V1 before investigation
 - **96% resolution rate** — 48/50 ultimately resolved
 - **50/50 correctness** — all final classifications match the independently defined
   ground truth
@@ -80,7 +80,7 @@ independently.
 
 | Item | Decision |
 |---|---|
-| Persistence layer | Not required to demonstrate the control loop |
+| Persistence layer | PostgreSQL implementation validated against 15 adversarial invariants (Phase J+); requires Docker. Core demo uses in-memory repository. |
 | Operator UI | Terminal output is sufficient for evaluation credibility |
 | Multi-provider support | Razorpay client is the reference implementation |
 | Real-data validation | Would strengthen the claim; honest gap |
@@ -106,4 +106,4 @@ uv run pytest
 Expected outputs:
 - Demo: visible EPISTEMIC_STALEMATE → investigation → MATCH resolution
 - Batch: 50/50 correctness, 96% resolution, 2 named unresolved exceptions
-- Tests: 186 passed, 4 skipped
+- Tests: 205 passed (15 are PostgreSQL invariants — requires Docker)

@@ -25,7 +25,7 @@ def get_now():
 
 @pytest.fixture(scope="session")
 def postgres_engine():
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
     from sqlalchemy import create_engine
     from src.storage.postgres.models import Base
     

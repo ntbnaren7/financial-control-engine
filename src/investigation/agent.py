@@ -227,8 +227,13 @@ class LocalLLMInvestigator:
         if the service is unreachable.
         """
         try:
-            response = httpx.get(self._tags_url, timeout=10.0)
+            response = httpx.get(self._tags_url, timeout=3.0)
             response.raise_for_status()
+        except (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+            raise OllamaConnectionError(
+                f"Timeout connecting to Ollama at {self._tags_url}. "
+                "Is Ollama running?"
+            ) from exc
         except httpx.ConnectError as exc:
             raise OllamaConnectionError(
                 f"Cannot connect to Ollama at {self._tags_url}. "
