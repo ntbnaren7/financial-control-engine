@@ -1409,8 +1409,8 @@
       "provider_payment_id": "pay_f44354693a87",
       "amount": "300",
       "currency": "INR",
-      "created_at": "2026-09-03T03:51:00.320152+00:00",
-      "sla_seconds": 3600,
+      "created_at": "2024-01-15T09:30:00+00:00",
+      "sla_seconds": 86400,
       "source_system": "OMS",
       "business_reason": "Refund for order associated with REC-041"
     },
@@ -1426,8 +1426,8 @@
       "provider_payment_id": "pay_efaa8e3dcfd6",
       "amount": "300",
       "currency": "INR",
-      "created_at": "2026-09-03T03:51:00.320255+00:00",
-      "sla_seconds": 3600,
+      "created_at": "2024-01-15T09:30:00+00:00",
+      "sla_seconds": 86400,
       "source_system": "OMS",
       "business_reason": "Refund for order associated with REC-042"
     },

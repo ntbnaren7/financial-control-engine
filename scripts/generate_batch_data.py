@@ -174,11 +174,18 @@ def _cat_b_value_mismatch(record_id: str, index: int) -> dict:
 
 
 def _cat_b_in_flight(record_id: str) -> dict:
-    """Category B-2: Within SLA; no provider event yet — normal."""
-    # Must be created relative to *actual* current time so the SLA hasn't expired.
-    # Using a fixed past timestamp would make the SLA appear expired.
-    now_iso = datetime.now(timezone.utc).isoformat()
-    sla_seconds = 3600  # 1 hour SLA
+    """Category B-2: Within SLA; no provider event yet — normal.
+
+    Uses a fixed seed timestamp (same base as all other records) with a
+    24-hour SLA so the correctness of these records does not depend on
+    how quickly the batch runner is invoked after the generator.
+    The SLA of 86400s means this record is IN_FLIGHT_PENDING for the
+    first 24 hours after _SEED_BASE_TIME — a window wide enough that
+    any same-session evaluation will remain within it.
+    """
+    _IN_FLIGHT_SLA = 86400  # 24 hours — wide reproducibility window
+    # created_delta: 30 minutes before seed base, so well within the 24h SLA
+    created_delta = timedelta(minutes=-30)
     return {
         "record_id": record_id,
         "scenario": "in_flight_pending",
@@ -189,8 +196,8 @@ def _cat_b_in_flight(record_id: str) -> dict:
             "provider_payment_id": _payment_id(record_id),
             "amount": "300",
             "currency": "INR",
-            "created_at": now_iso,  # Just created — SLA not expired
-            "sla_seconds": sla_seconds,
+            "created_at": _ts(created_delta),  # Fixed; reproducible
+            "sla_seconds": _IN_FLIGHT_SLA,
             "source_system": "OMS",
             "business_reason": f"Refund for order associated with {record_id}",
         },

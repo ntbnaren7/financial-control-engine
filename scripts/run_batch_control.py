@@ -611,7 +611,16 @@ async def main() -> int:
     records: list[dict] = json.loads(data_path.read_text())
     print(f"  {len(records)} records loaded.")
 
-    now = datetime.now(timezone.utc)
+    # Use the dataset's seed timestamp as the evaluation reference point.
+    # All record created_at values and SLA deadlines in synthetic_batch.json
+    # are relative to _SEED_BASE_TIME = 2024-01-15T10:00:00Z (from
+    # generate_batch_data.py).  Using that same anchor ensures:
+    #   • Category A/B past-SLA records are always past their deadline
+    #   • IN_FLIGHT_PENDING records (created 30 min before seed, SLA=24h)
+    #     are always within their SLA window
+    # This makes the evaluation fully deterministic and reproducible at any
+    # future wall-clock time.
+    now = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
 
     # Build batch mock transport (keyed by payment_id → sub_case)
     mock_transport = _build_mock_transport(records)
