@@ -1,5 +1,5 @@
 import structlog
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime, timezone
 
 from src.domain.ingestion.models import IngestionPayload
@@ -23,7 +23,7 @@ class IngestionWorker:
         ingestion_repo,
         observation_repo: ObservationRepository,
         evidence_repo: EvidenceRepository,
-        on_observation_persisted: Optional[Callable[[any], None]] = None,
+        on_observation_persisted: Optional[Callable[[Any], None]] = None,
     ):
         self.worker_id = worker_id
         self.ingestion_repo = ingestion_repo
