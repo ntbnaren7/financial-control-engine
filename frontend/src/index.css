@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-fce-bg text-fce-text font-sans antialiased;
+  }
+}
+
+@layer components {
+  .control-panel {
+    @apply border border-slate-700 bg-fce-surface p-4 shadow-lg;
+  }
+  .data-label {
+    @apply text-xs font-semibold text-fce-textMuted uppercase tracking-wider mb-1;
+  }
+  .data-value {
+    @apply font-mono text-sm;
+  }
+}
