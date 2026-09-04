@@ -700,3 +700,137 @@ async def test_unexpected_execution_independent_path(base_worker_deps):
         # If it doesn't support observation-centric, we might need to verify the exact behavior.
         # But we'll test the actual behavior.
         assert res is not None
+
+
+def test_pure_postgres_occ_update_concurrency(session_maker):
+    """
+    Test 11: Real PostgreSQL optimistic locking on update_incident_state_occ
+    with concurrent database connections across multiple OS threads.
+    
+    Invariants proven:
+    1. Across 5 concurrent threads attempting to increment version 1, exactly ONE succeeds.
+    2. Exactly 4 threads receive False (0 rows updated due to version mismatch).
+    3. The database version is incremented exactly once (1 -> 2).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    inc_repo = PostgresActiveIncidentRepository(session_maker)
+    active_subject = f"exp_pure_occ_{uuid.uuid4()}"
+    discrepancy_reason = "AMOUNT_MISMATCH"
+
+    with session_maker() as session:
+        inc = ActiveIncidentIdempotencyRecord(
+            active_subject=active_subject,
+            discrepancy_reason=discrepancy_reason,
+            incident_id=f"inc_{uuid.uuid4()}",
+            state=IncidentState.ACTIONABLE,
+            version=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(inc)
+        session.commit()
+
+    def worker_claim(worker_num):
+        repo = PostgresActiveIncidentRepository(session_maker)
+        return repo.update_incident_state_occ(
+            active_subject=active_subject,
+            discrepancy_reason=discrepancy_reason,
+            current_version=1,
+            new_state=IncidentState.ACTUATION_PENDING,
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(worker_claim, i) for i in range(5)]
+        outcomes = [f.result() for f in futures]
+
+    assert outcomes.count(True) == 1, f"Expected exactly 1 OCC winner, got {outcomes.count(True)}"
+    assert outcomes.count(False) == 4, f"Expected exactly 4 OCC losers, got {outcomes.count(False)}"
+
+    with session_maker() as session:
+        inc = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+            active_subject=active_subject,
+            discrepancy_reason=discrepancy_reason,
+        ).one()
+        assert inc.version == 2
+        assert inc.state == IncidentState.ACTUATION_PENDING
+
+
+@pytest.mark.asyncio
+async def test_actuation_engine_occ_race_against_real_postgres(base_worker_deps):
+    """
+    Test 12: Real PostgreSQL OCC race between two workers for ActuationEngine.execute_intent.
+    Two workers concurrently attempt to claim the same incident version for actuation.
+
+    Invariants proven:
+    1. Exactly one worker wins the OCC claim in PostgreSQL.
+    2. Exactly one worker proceeds to call the provider.
+    3. The losing worker receives ActuationState.ESCALATED without calling the provider.
+    4. Database row version is incremented exactly once (version 1 -> 2).
+    5. Exactly one ActuationRecord is persisted in the database with SUCCESS outcome.
+    """
+    from src.engine.actuator import ActuationEngine
+    from src.domain.actuation.models import ActuationState
+    from src.domain.core.models import RecoveryAction, RecoveryIntent
+
+    deps = base_worker_deps
+    active_subject = f"exp_engine_occ_{uuid.uuid4()}"
+    discrepancy_reason = "AMOUNT_MISMATCH"
+
+    with deps["session_maker"]() as session:
+        incident = ActiveIncidentIdempotencyRecord(
+            active_subject=active_subject,
+            discrepancy_reason=discrepancy_reason,
+            incident_id=f"inc_{uuid.uuid4()}",
+            state=IncidentState.ACTIONABLE,
+            version=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(incident)
+        session.commit()
+
+    act_repo = deps["act_repo"]
+    inc_repo = deps["inc_repo"]
+
+    mock_execute = AsyncMock()
+    async def delayed_execute(*args, **kwargs):
+        await asyncio.sleep(0.05)  # simulate in-flight external provider call
+        return ActuationState.SUCCESS
+    mock_execute.side_effect = delayed_execute
+
+    mock_provider = MagicMock()
+    mock_provider.execute = mock_execute
+
+    engine = ActuationEngine(inc_repo, act_repo, razorpay_provider=MagicMock())
+    engine.providers[RecoveryAction.REFUND_PAYMENT] = mock_provider
+
+    intent = RecoveryIntent(
+        action=RecoveryAction.REFUND_PAYMENT,
+        target_id="pay_real_occ",
+        amount=1000,
+        currency="INR",
+        reason=discrepancy_reason,
+    )
+
+    results = await asyncio.gather(
+        engine.execute_intent(intent, active_subject, discrepancy_reason, incident_version=1),
+        engine.execute_intent(intent, active_subject, discrepancy_reason, incident_version=1),
+    )
+
+    assert results.count(ActuationState.SUCCESS) == 1, f"Expected 1 SUCCESS, got {results.count(ActuationState.SUCCESS)}"
+    assert results.count(ActuationState.ESCALATED) == 1, f"Expected 1 ESCALATED, got {results.count(ActuationState.ESCALATED)}"
+    assert mock_execute.call_count == 1, f"Expected provider to be called exactly once, got {mock_execute.call_count}"
+
+    with deps["session_maker"]() as session:
+        inc = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+            active_subject=active_subject,
+            discrepancy_reason=discrepancy_reason,
+        ).one()
+        assert inc.version == 2
+        assert inc.state == IncidentState.ACTUATION_PENDING
+
+        from src.storage.postgres_substrate import SubstrateActuationRecord
+        act_records = session.query(SubstrateActuationRecord).filter_by(
+            execution_identity=active_subject
+        ).all()
+        assert len(act_records) == 1
+        assert act_records[0].state == ActuationState.SUCCESS.value
+
