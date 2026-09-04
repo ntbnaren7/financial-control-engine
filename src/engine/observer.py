@@ -1,10 +1,15 @@
 from typing import Optional
 from src.domain.core.models import Observation, CorrelationKeys, CanonicalStatus
 from src.engine.external_simulator import simulator
+from src.integrations.razorpay.provider import RazorpayProvider
+from src.integrations.razorpay.client import ProviderClientError
 import uuid
 
 class SimulatedObserver:
-    def observe_merchant_order(self, order_id: str) -> Optional[Observation]:
+    def __init__(self, razorpay_provider: Optional[RazorpayProvider] = None):
+        self.razorpay_provider = razorpay_provider
+
+    async def observe_merchant_order(self, order_id: str) -> Optional[Observation]:
         order = simulator.read_merchant_order(order_id)
         if not order:
             return None
@@ -20,46 +25,54 @@ class SimulatedObserver:
             correlation_keys=CorrelationKeys(internal_ref=order_id)
         )
 
-    def observe_provider_payment(self, payment_id: str) -> Optional[Observation]:
-        payment = simulator.read_provider_payment(payment_id)
-        if not payment:
+    async def observe_provider_payment(self, payment_id: str) -> Optional[Observation]:
+        if not self.razorpay_provider:
             return None
-        raw_status = payment.get("status")
-        if raw_status == "CAPTURED":
+            
+        try:
+            payment = await self.razorpay_provider.get_payment(payment_id)
+        except ProviderClientError:
+            return None
+            
+        raw_status = payment.status
+        if raw_status == "captured":
             status = CanonicalStatus.SETTLED
-        elif raw_status == "REFUNDED":
+        elif raw_status == "refunded":
             status = CanonicalStatus.REFUNDED
+        elif raw_status == "failed":
+            status = CanonicalStatus.FAILED
         else:
             status = CanonicalStatus.UNKNOWN
             
         return Observation(
             provider="Razorpay",
-            provider_reference=payment["id"],
+            provider_reference=payment.id,
             observation_type="PAYMENT",
             canonical_status=status,
-            observed_amount=payment["amount"],
+            observed_amount=payment.amount,
             currency="INR",
             evidence_ids=[],
-            correlation_keys=CorrelationKeys(provider_ref=payment_id, internal_ref=payment.get("order_id"))
+            correlation_keys=CorrelationKeys(provider_ref=payment.id, internal_ref=payment.order_id)
         )
 
-    def observe_provider_refund(self, refund_id: str) -> Optional[Observation]:
-        # For the simulator, refunds are just state mutations on the payment record.
-        # In a real integration, this would query a /refunds endpoint.
-        payment = simulator.read_provider_payment(refund_id)
-        if not payment:
+    async def observe_provider_refund(self, refund_id: str) -> Optional[Observation]:
+        if not self.razorpay_provider:
+            return None
+            
+        try:
+            refund = await self.razorpay_provider.get_refund(refund_id)
+        except ProviderClientError:
             return None
         
-        status = CanonicalStatus.REFUNDED if payment.get("status") == "REFUNDED" else CanonicalStatus.UNKNOWN
+        status = CanonicalStatus.REFUNDED if refund.status == "processed" else CanonicalStatus.UNKNOWN
         
         return Observation(
             provider="Razorpay",
-            provider_reference=payment["id"],
+            provider_reference=refund.id,
             observation_type="REFUND",
             canonical_status=status,
-            observed_amount=payment["amount"],
+            observed_amount=refund.amount,
             currency="INR",
             evidence_ids=[],
-            correlation_keys=CorrelationKeys(provider_ref=refund_id, internal_ref=payment.get("order_id"))
+            correlation_keys=CorrelationKeys(provider_ref=refund.id, internal_ref=refund.payment_id)
         )
-

@@ -144,8 +144,8 @@ def get_audit_trace(
             "intent_action": actuation.intent_action,
             "target_id": actuation.target_id,
             "created_at": actuation.created_at.isoformat() if actuation.created_at else None,
-            "completed_at": actuation.completed_at.isoformat() if actuation.completed_at else None,
-            "failure_reason": actuation.failure_reason,
+            "completed_at": actuation.updated_at.isoformat() if actuation.updated_at else None,
+            "failure_reason": None,
         }
         # Parse recovery intent from canonical payload
         import json

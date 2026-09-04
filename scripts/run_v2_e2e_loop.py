@@ -19,7 +19,7 @@ from src.storage.postgres_substrate import (
     SubstrateReconciliationResultRecord
 )
 from src.domain.core.models import (
-    Expectation, Observation, CorrelationKeys, BusinessStatus, ReconciliationOutcome
+    Expectation, Observation, CorrelationKeys, BusinessStatus, ReconciliationOutcome, CanonicalStatus
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
 from src.engine.evidence_assembler import EvidenceAssembler
@@ -27,7 +27,7 @@ from src.investigation.agent import Investigator
 from src.investigation.validator import OutputValidator
 from src.investigation.verifier import DeterministicVerifier
 from src.engine.worker import V2ControlWorker
-from src.integrations.razorpay.client import RazorpayClient
+from src.integrations.razorpay.provider import RazorpayProvider
 from src.domain.investigation.models import CausalHypothesis, InvestigationDisposition, VerificationIntent
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -45,6 +45,7 @@ async def main():
     inc_repo = PostgresActiveIncidentRepository(SessionMaker)
     evt_repo = PostgresControlEventRepository(SessionMaker)
     recon_repo = PostgresReconciliationResultRepository(SessionMaker)
+    act_repo = PostgresActuationRepository(SessionMaker)
     
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
@@ -67,7 +68,7 @@ async def main():
     
     # Mock Razorpay HTTP client
     logger.info("Mocking Razorpay Provider API...")
-    client = MagicMock(spec=RazorpayClient)
+    client = MagicMock(spec=RazorpayProvider)
     client.get_payment_refunds = AsyncMock()
     
     class MockRefund:
@@ -94,7 +95,7 @@ async def main():
         MockRefund("rfnd_123", "pay_123", "rcpt_123", "processed", 2000, "INR", int(datetime.now(timezone.utc).timestamp()) + 3600)
     ]
     
-    verifier = DeterministicVerifier(razorpay_client=client)
+    verifier = DeterministicVerifier(razorpay_provider=client)
     
     worker = V2ControlWorker(
         worker_id="worker_1",
@@ -109,7 +110,8 @@ async def main():
         assembler=assembler,
         investigator=investigator,
         validator=validator,
-        verifier=verifier
+        verifier=verifier,
+        razorpay_provider=client
     )
     
     # Seed data
@@ -118,7 +120,7 @@ async def main():
     exp = Expectation(
         expectation_id="exp_1",
         domain="REFUND",
-        expected_state="PROCESSED",
+        expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000,
         currency="INR",
         source_system="OMS",
@@ -133,7 +135,7 @@ async def main():
         provider="razorpay",
         provider_reference="pay_123",
         observation_type="PAYMENT_STATUS",
-        observed_state="CAPTURED", # Discrepancy!
+        canonical_status=CanonicalStatus.SETTLED, # Discrepancy!
         observed_amount=2000,
         currency="INR",
         evidence_ids=[],

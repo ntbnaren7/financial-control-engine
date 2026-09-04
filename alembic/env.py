@@ -19,6 +19,7 @@ if config.config_file_name is not None:
 from src.storage.postgres.models import Base
 from src.storage.postgres_substrate import *
 from src.storage.postgres_governance import *
+from src.storage.postgres_ingestion import *
 from src.config.settings import FCESettings
 
 target_metadata = Base.metadata

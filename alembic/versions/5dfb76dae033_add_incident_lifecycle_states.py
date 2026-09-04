@@ -37,8 +37,8 @@ def upgrade() -> None:
             op.execute(f"ALTER TYPE investigationstate ADD VALUE IF NOT EXISTS '{val}'")
             
         # Migrate existing data
-        op.execute("UPDATE v2_active_incidents SET state = 'DETECTED' WHERE state = 'ACTIVE'")
-        op.execute("UPDATE v2_active_incidents SET state = 'RESOLVED' WHERE state = 'COMPLETED'")
+        # op.execute("UPDATE v2_active_incidents SET state = 'DETECTED' WHERE state = 'ACTIVE'")
+        # op.execute("UPDATE v2_active_incidents SET state = 'RESOLVED' WHERE state = 'COMPLETED'")
 
 
 def downgrade() -> None:

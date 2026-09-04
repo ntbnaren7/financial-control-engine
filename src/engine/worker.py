@@ -34,6 +34,8 @@ from src.domain.investigation.models import VerificationStatus, ValidationReject
 from src.domain.core.models import RecoveryAction, ReconciliationOutcome
 from src.engine.evidence_assembler import EvidenceAssembler
 from src.engine.policy import V2PolicyEvaluator
+from src.investigation.verifier import DeterministicVerifier
+from src.integrations.razorpay.provider import RazorpayProvider
 from src.engine.actuator import ActuationEngine
 from src.domain.actuation.models import ActuationState
 from src.engine.observer import SimulatedObserver
@@ -66,6 +68,7 @@ class V2ControlWorker:
         investigator: Investigator,
         validator: OutputValidator,
         verifier: DeterministicVerifier,
+        razorpay_provider: 'RazorpayProvider',
         settings: ControlLoopSettings = ControlLoopSettings(),
         test_hooks: Optional[Dict[str, Callable[[], None]]] = None
     ):
@@ -83,13 +86,13 @@ class V2ControlWorker:
         self.validator = validator
         self.verifier = verifier
         self.policy = V2PolicyEvaluator()
-        self.actuator = ActuationEngine(self.incident_repo, self.actuation_repo)
+        self.actuator = ActuationEngine(self.incident_repo, self.actuation_repo, razorpay_provider=razorpay_provider)
         
         # Phase 10 Governance Gate (Optional for legacy tests)
         from src.engine.governance_gate import GovernanceGate
         self.governance_gate = GovernanceGate(self.incident_repo.session_maker) if hasattr(self.incident_repo, 'session_maker') else None
         
-        self.observer = SimulatedObserver()
+        self.observer = SimulatedObserver(razorpay_provider=razorpay_provider)
         self.settings = settings
         self.test_hooks = test_hooks or {}
 
@@ -382,11 +385,11 @@ class V2ControlWorker:
                                 or obs.observation_type
                             ).upper()
                             if "REFUND" in obs_domain:
-                                new_obs = self.observer.observe_provider_refund(obs.provider_reference)
+                                new_obs = await self.observer.observe_provider_refund(obs.provider_reference)
                             else:
-                                new_obs = self.observer.observe_provider_payment(obs.provider_reference)
+                                new_obs = await self.observer.observe_provider_payment(obs.provider_reference)
                         elif obs.provider.lower() == "merchant":
-                            new_obs = self.observer.observe_merchant_order(obs.provider_reference)
+                            new_obs = await self.observer.observe_merchant_order(obs.provider_reference)
                         
                         if new_obs and new_obs.canonical_status != obs.canonical_status:
                             logger.info(f"Re-observation guard caught state change for {obs.provider_reference}: {obs.canonical_status} -> {new_obs.canonical_status}")
@@ -471,14 +474,14 @@ class V2ControlWorker:
                 # Now Phase 9 ActuationEngine performs the external mutation (Tx2).
                 assert decision.actuation_record is not None, "Governance Gate ALLOWED but did not return ActuationRecord"
                 self.incident_repo.transition_to_actuating(active_subject, discrepancy_reason)
-                actuation_state = self.actuator.execute_claimed_intent(
+                actuation_state = await self.actuator.execute_claimed_intent(
                     intent=intent,
                     record=decision.actuation_record
                 )
             else:
                 # Fallback for legacy tests
                 self.incident_repo.transition_to_actuating(active_subject, discrepancy_reason)
-                actuation_state = self.actuator.execute_intent(
+                actuation_state = await self.actuator.execute_intent(
                     intent=intent,
                     execution_identity=active_subject,
                     discrepancy_reason=discrepancy_reason,
@@ -504,11 +507,11 @@ class V2ControlWorker:
             logger.info(f"OBSERVE AGAIN: Reading final state from simulated external systems")
             
             if intent.action == RecoveryAction.REPAIR_MERCHANT_STATE:
-                final_obs = self.observer.observe_merchant_order(intent.target_id)
+                final_obs = await self.observer.observe_merchant_order(intent.target_id)
                 if final_obs:
                     all_new_observations.append(final_obs)
             elif intent.action == RecoveryAction.REFUND_PAYMENT:
-                final_obs = self.observer.observe_provider_payment(intent.target_id)
+                final_obs = await self.observer.observe_provider_payment(intent.target_id)
                 if final_obs:
                     all_new_observations.append(final_obs)
                     

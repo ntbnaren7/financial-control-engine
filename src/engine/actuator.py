@@ -23,7 +23,7 @@ class SimulatedActuator:
     Thin shim over the external simulator, retained for backward compatibility
     with the existing worker and unit tests while Phase 9 engine is wired in.
     """
-    def execute(self, intent: RecoveryIntent) -> ActuationOutcome:
+    async def execute(self, intent: RecoveryIntent) -> ActuationOutcome:
         logger.info(f"SimulatedActuator: Executing {intent.action.value} on {intent.target_id}")
 
         if intent.action == RecoveryAction.REPAIR_MERCHANT_STATE:
@@ -46,7 +46,7 @@ class SimulatedActuator:
 # Provider abstraction
 # ---------------------------------------------------------------------------
 class ProviderActuator(Protocol):
-    def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
+    async def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
         """Executes the provider API call idempotently."""
         ...
 
@@ -63,24 +63,40 @@ def _map_simulator_result(raw: str) -> ActuationState:
     return _SIMULATOR_RESULT_MAP.get(raw, ActuationState.TIMEOUT_UNKNOWN)
 
 
+from src.integrations.razorpay.provider import RazorpayProvider
+
 class RazorpayRefundActuator:
     """Issues POST /v1/payments/{id}/refund with X-Refund-Idempotency header."""
 
-    def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
+    def __init__(self, provider: RazorpayProvider):
+        self.provider = provider
+
+    async def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
         logger.info(
             "Razorpay API POST /v1/payments/{target_id}/refund",
             target_id=target_id,
             idempotency_key=idempotency_key,
             payload=payload,
         )
-        raw = simulator.refund_provider_payment(target_id)
-        return _map_simulator_result(raw)
+        try:
+            amount = payload.get("amount", 0)
+            receipt = payload.get("receipt", f"fce_{target_id}")
+            await self.provider.create_refund(
+                payment_id=target_id, 
+                amount=amount, 
+                receipt=receipt, 
+                idempotency_key=idempotency_key
+            )
+            return ActuationState.SUCCESS
+        except Exception as e:
+            logger.error(f"RazorpayRefundActuator error: {e}")
+            return ActuationState.TIMEOUT_UNKNOWN
 
 
 class MerchantRepairActuator:
     """Issues an internal order-state-transition request to the Merchant API."""
 
-    def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
+    async def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
         logger.info(
             "Merchant Internal API repair order",
             target_id=target_id,
@@ -105,15 +121,16 @@ class ActuationEngine:
         self,
         investigation_repo: PostgresActiveIncidentRepository,
         actuation_repo: PostgresActuationRepository,
+        razorpay_provider: RazorpayProvider,
     ):
         self.investigation_repo = investigation_repo
         self.actuation_repo = actuation_repo
         self.providers: Dict[RecoveryAction, ProviderActuator] = {
-            RecoveryAction.REFUND_PAYMENT: RazorpayRefundActuator(),
+            RecoveryAction.REFUND_PAYMENT: RazorpayRefundActuator(razorpay_provider),
             RecoveryAction.REPAIR_MERCHANT_STATE: MerchantRepairActuator(),
         }
 
-    def execute_intent(
+    async def execute_intent(
         self,
         intent: RecoveryIntent,
         execution_identity: str,
@@ -194,7 +211,7 @@ class ActuationEngine:
         # This is intentionally outside any DB transaction — we must never hold
         # a DB lock across an external API call.
         try:
-            outcome = provider.execute(intent.target_id, idempotency_key, payload)
+            outcome = await provider.execute(intent.target_id, idempotency_key, payload)
         except Exception as exc:
             logger.error("ActuationEngine: Network error during execution", error=str(exc))
             outcome = ActuationState.TIMEOUT_UNKNOWN
@@ -208,7 +225,7 @@ class ActuationEngine:
 
         return outcome
 
-    def execute_claimed_intent(
+    async def execute_claimed_intent(
         self,
         intent: RecoveryIntent,
         record: ActuationRecord,
@@ -235,7 +252,7 @@ class ActuationEngine:
 
         # Network call (outside any transaction)
         try:
-            outcome = provider.execute(record.target_id, record.idempotency_key, payload)
+            outcome = await provider.execute(record.target_id, record.idempotency_key, payload)
         except Exception as exc:
             logger.error("ActuationEngine: Network error during execution", error=str(exc))
             outcome = ActuationState.TIMEOUT_UNKNOWN

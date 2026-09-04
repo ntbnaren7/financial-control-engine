@@ -71,8 +71,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('action_id')
     )
     op.create_index(op.f('ix_v2_operator_actions_incident_id'), 'v2_operator_actions', ['incident_id'], unique=False)
-    op.drop_index(op.f('idx_evidence_source_entity'), table_name='evidence')
-    op.drop_table('evidence')
+
     op.add_column('v2_active_incidents', sa.Column('version', sa.Integer(), nullable=False))
     op.alter_column('v2_active_incidents', 'state',
                existing_type=sa.VARCHAR(length=13),

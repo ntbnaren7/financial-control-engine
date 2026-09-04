@@ -38,7 +38,7 @@ def inject_events(count=10) -> list[str]:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from src.storage.postgres.models import Base
-    from src.domain.core.models import Expectation, Observation, ReconciliationResult, ReconciliationOutcome, DiscrepancyReason
+    from src.domain.core.models import Expectation, Observation, ReconciliationResult, ReconciliationOutcome, DiscrepancyReason, CanonicalStatus
     from src.storage.postgres_substrate import PostgresExpectationRepository, PostgresObservationRepository, PostgresReconciliationResultRepository, PostgresControlEventRepository, ControlEventType
     
     engine = create_engine(DB_URL_SA)
@@ -56,8 +56,8 @@ def inject_events(count=10) -> list[str]:
         obs_id = f"obs_{evt_id}"
         recon_id = f"rec_{evt_id}"
         
-        exp_repo.save(Expectation(expectation_id=exp_id, domain="Refund", expected_state="PROCESSED", expected_amount=100, currency="INR", source_system="ledger"))
-        obs_repo.save(Observation(observation_id=obs_id, provider="razorpay", provider_reference="ref1", observation_type="refund", observed_state="FAILED", observed_amount=100, currency="INR", evidence_ids=[]))
+        exp_repo.save(Expectation(expectation_id=exp_id, domain="Refund", expected_canonical_status=CanonicalStatus.SETTLED, expected_amount=100, currency="INR", source_system="ledger"))
+        obs_repo.save(Observation(observation_id=obs_id, provider="razorpay", provider_reference="ref1", observation_type="refund", canonical_status=CanonicalStatus.FAILED, observed_amount=100, currency="INR", evidence_ids=[]))
         recon_repo.save(ReconciliationResult(
             reconciliation_id=recon_id,
             expectation_id=exp_id,

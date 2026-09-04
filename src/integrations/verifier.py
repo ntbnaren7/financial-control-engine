@@ -7,7 +7,8 @@ import uuid
 from src.domain.investigation.models import VerificationIntent, VerificationResult, VerificationStatus, VerificationRejectionReason
 from src.domain.investigation.context import InvestigationContext
 from src.domain.core.models import Evidence
-from src.integrations.razorpay.client import RazorpayClient, ProviderNetworkError, ProviderClientError
+from src.integrations.razorpay.client import ProviderNetworkError, ProviderClientError
+from src.integrations.razorpay.provider import RazorpayProvider
 from src.integrations.razorpay.normalizer import RazorpayV2Normalizer
 
 class ProviderVerifier(Protocol):
@@ -16,8 +17,8 @@ class ProviderVerifier(Protocol):
         ...
 
 class RazorpayVerifier:
-    def __init__(self, client: RazorpayClient):
-        self._client = client
+    def __init__(self, provider: RazorpayProvider):
+        self._provider = provider
 
     async def verify(self, intent: VerificationIntent, context: InvestigationContext) -> VerificationResult:
         if intent in (VerificationIntent.QUERY_PROVIDER_STATE, VerificationIntent.QUERY_PROVIDER_TRANSACTION, VerificationIntent.COMPARE_SETTLEMENT_RECORD):
@@ -71,7 +72,7 @@ class RazorpayVerifier:
             now = datetime.now(timezone.utc)
 
             if domain == "PAYMENT":
-                payment_record = await self._client.get_payment(provider_ref)
+                payment_record = await self._provider.get_payment(provider_ref)
                 
                 payload = payment_record.model_dump()
                 payload_bytes = json.dumps(payload, sort_keys=True).encode()
@@ -90,7 +91,7 @@ class RazorpayVerifier:
                 new_obs.append(obs)
                 
             else:
-                refunds = await self._client.get_payment_refunds(provider_ref)
+                refunds = await self._provider.get_payment_refunds(provider_ref)
                 for r in refunds:
                     if internal_ref and r.receipt != internal_ref:
                         continue

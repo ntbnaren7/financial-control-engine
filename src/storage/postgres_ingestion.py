@@ -158,7 +158,7 @@ class PostgresIngestionRepository:
                 payload_hash=ev_record.payload_hash,
                 raw_payload_ref=ev_record.raw_payload_ref,
                 observed_at=ev_record.observed_at,
-                source_type=ev_record.source_type,
+                ingested_at=ev_record.ingested_at,
             ).on_conflict_do_nothing(index_elements=['evidence_id'])
             session.execute(ev_stmt)
 

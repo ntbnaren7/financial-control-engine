@@ -139,6 +139,18 @@ class V2PolicyEvaluator:
                 expected_provider_state=provider_state_str
             )
             
+        is_merchant_cancelled = (merchant_status == CanonicalStatus.FAILED or merchant_status == "CANCELLED")
+        # Policy: Merchant Cancelled but Provider Settled -> Refund Payment
+        if is_provider_settled and is_merchant_cancelled:
+            logger.info("Policy derived REFUND_PAYMENT", target_id=provider_obs.provider_reference)
+            return RecoveryIntent(
+                action=RecoveryAction.REFUND_PAYMENT,
+                target_id=provider_obs.provider_reference,
+                amount=provider_obs.observed_amount,
+                currency=provider_obs.currency,
+                reason="Merchant cancelled order but provider captured payment. Issuing refund."
+            )
+            
         # Policy: Unknown provider outcome -> ESCALATE
         if provider_status in (CanonicalStatus.UNKNOWN, "UNKNOWN", "TIMEOUT"):
             logger.info("Policy derived ESCALATE: UNKNOWN provider state")

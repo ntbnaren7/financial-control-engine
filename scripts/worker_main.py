@@ -21,10 +21,12 @@ from src.investigation.agent import LocalLLMInvestigator
 from src.investigation.validator import OutputValidator
 from src.investigation.verifier import DeterministicVerifier
 from src.integrations.razorpay.client import RazorpayClient
+from src.integrations.razorpay.mock_provider import MockRazorpayProvider
 from src.engine.worker import V2ControlWorker
 from src.ingestion.worker import IngestionWorker
 from src.storage.postgres_ingestion import PostgresIngestionRepository
 from src.observability.logging import configure_logging, get_logger
+from src.engine.observer import SimulatedObserver
 import uuid
 import os
 from typing import Dict, Any, Optional
@@ -105,21 +107,17 @@ async def main():
     mock_mode = os.environ.get("FCE_MOCK_MODE") == "1"
     
     if mock_mode:
-        logger.warning("FCE_MOCK_MODE=1: Using deterministic mocks for LLM and Verifier")
+        logger.warning("FCE_MOCK_MODE=1: Using deterministic mocks for LLM and Provider")
         investigator = MockInvestigator()
         
-        # We need a mock razorpay client to pass to MockVerifier if we use it, 
-        # or we just instantiate MockVerifier with a dummy or None. 
-        # But MockVerifier accepts razorpay_client but doesn't strictly use it if we mock everything.
-        from unittest.mock import AsyncMock
-        mock_rzp = AsyncMock()
-        verifier = MockVerifier(razorpay_client=mock_rzp)
+        provider = MockRazorpayProvider()
+        verifier = DeterministicVerifier(razorpay_provider=provider)
         validator = OutputValidator()
     else:
         investigator = LocalLLMInvestigator(settings=settings.llm)
         validator = OutputValidator()
-        razorpay_client = RazorpayClient(settings=settings.razorpay)
-        verifier = DeterministicVerifier(razorpay_client=razorpay_client)
+        provider = RazorpayClient(settings=settings.razorpay)
+        verifier = DeterministicVerifier(razorpay_provider=provider)
     
     worker = V2ControlWorker(
         worker_id=worker_id,
@@ -135,6 +133,7 @@ async def main():
         investigator=investigator,
         validator=validator,
         verifier=verifier, # type: ignore
+        razorpay_provider=provider,
         settings=settings.control_loop
     )
     

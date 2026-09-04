@@ -7,6 +7,8 @@ from functools import lru_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.config.settings import FCESettings
+
 from src.storage.postgres_substrate import (
     PostgresActiveIncidentRepository,
     PostgresActuationRepository,
@@ -20,7 +22,8 @@ from src.storage.postgres_ingestion import PostgresIngestionRepository
 
 
 def _make_session_factory():
-    db_url = os.getenv("DATABASE_URL")
+    settings = FCESettings.load()
+    db_url = settings.database.url.get_secret_value()
     if not db_url:
         raise RuntimeError("DATABASE_URL environment variable is required")
     engine = create_engine(db_url, pool_pre_ping=True)

@@ -63,11 +63,19 @@ def evaluate_expectation_centric(
     latest_obs = executions[0].get_latest_observation()
     
     # 4. State Mismatch across all observed providers
-    # Group by provider to get the latest observation per provider
+    # Group by provider to get the latest observation per provider.
+    # Normalise observed_at to UTC-aware before comparing — SQLite returns naive datetimes
+    # for DateTime(timezone=True) columns, so raw comparison is unsafe.
+    def _to_utc_safe(dt):
+        if dt.tzinfo is None:
+            from datetime import timezone as _tz
+            return dt.replace(tzinfo=_tz.utc)
+        return dt
+
     provider_latest = {}
     for obs in executions[0].observations:
         provider = obs.provider.lower()
-        if provider not in provider_latest or obs.observed_at > provider_latest[provider].observed_at:
+        if provider not in provider_latest or _to_utc_safe(obs.observed_at) > _to_utc_safe(provider_latest[provider].observed_at):
             provider_latest[provider] = obs
 
     for provider, obs in provider_latest.items():

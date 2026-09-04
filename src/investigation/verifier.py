@@ -27,7 +27,7 @@ from src.domain.investigation.models import (
     VerificationRejectionReason
 )
 from src.integrations.verifier import ProviderVerifier, RazorpayVerifier
-from src.integrations.razorpay.client import RazorpayClient
+from src.integrations.razorpay.provider import RazorpayProvider
 
 class DeterministicVerifier:
     """
@@ -36,10 +36,10 @@ class DeterministicVerifier:
     trusted InvestigationContext.
     """
 
-    def __init__(self, razorpay_client: RazorpayClient) -> None:
+    def __init__(self, razorpay_provider: RazorpayProvider) -> None:
         # Simple registry of authorized providers
         self._providers: Dict[str, ProviderVerifier] = {
-            "razorpay": RazorpayVerifier(razorpay_client)
+            "razorpay": RazorpayVerifier(razorpay_provider)
         }
 
     async def verify(
