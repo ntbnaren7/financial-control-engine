@@ -20,7 +20,7 @@ from src.engine.evidence_assembler import EvidenceAssembler
 from src.investigation.agent import LocalLLMInvestigator
 from src.investigation.validator import OutputValidator
 from src.investigation.verifier import DeterministicVerifier
-from src.integrations.razorpay.client import RazorpayClient
+from src.integrations.razorpay.real_provider import RealRazorpayProvider
 from src.integrations.razorpay.mock_provider import MockRazorpayProvider
 from src.engine.worker import V2ControlWorker
 from src.ingestion.worker import IngestionWorker
@@ -116,7 +116,7 @@ async def main():
     else:
         investigator = LocalLLMInvestigator(settings=settings.llm)
         validator = OutputValidator()
-        provider = RazorpayClient(settings=settings.razorpay)
+        provider = RealRazorpayProvider(settings=settings.razorpay)
         verifier = DeterministicVerifier(razorpay_provider=provider)
     
     worker = V2ControlWorker(
