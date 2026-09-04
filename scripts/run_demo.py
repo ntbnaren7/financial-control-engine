@@ -423,8 +423,9 @@ def build_worker(session_factory, use_real_llm: bool = False) -> V2ControlWorker
     # cast() satisfies the type checker — SimulatedRazorpayClient is a structural
     # duck-type shim that fulfils the same async interface without inheriting the class.
     from typing import cast as _cast
-    simulated_razorpay = _cast(RazorpayClient, SimulatedRazorpayClient())
-    verifier = DeterministicVerifier(razorpay_client=simulated_razorpay)
+    from src.integrations.razorpay.provider import RazorpayProvider
+    simulated_razorpay = _cast(RazorpayProvider, SimulatedRazorpayClient())
+    verifier = DeterministicVerifier(razorpay_provider=simulated_razorpay)
 
     return V2ControlWorker(
         worker_id="demo_worker_1",
@@ -440,6 +441,7 @@ def build_worker(session_factory, use_real_llm: bool = False) -> V2ControlWorker
         investigator=investigator,
         validator=validator,
         verifier=verifier,
+        razorpay_provider=simulated_razorpay,
     )
 
 
@@ -578,26 +580,32 @@ async def main(reset: bool = False, total_records: int = 100, use_real_llm: bool
     if db_url:
         os.environ["DATABASE_URL"] = db_url
     else:
-        db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise SystemExit(
-            "ERROR: no database URL configured.\n"
-            "  Pass --db-url sqlite:///sqlite.db for a local demo, or\n"
-            "  ensure DATABASE_URL is set in .env for PostgreSQL."
-        )
+        db_url = os.environ.get("DATABASE_URL", "sqlite:///demo.db")
 
     safe_url = db_url[:db_url.index('@')+1] if '@' in db_url else db_url
     logger.info(f"Connecting to database: {safe_url}...")
-    engine = create_engine(db_url, pool_pre_ping=True)
+    try:
+        engine = create_engine(db_url, pool_pre_ping=True)
+        with engine.connect():
+            pass
+    except Exception as exc:
+        if not db_url.startswith("sqlite"):
+            logger.warning(
+                f"Configured database ({safe_url}) unreachable: {exc}. "
+                "Falling back to local SQLite demo substrate (sqlite:///demo.db)."
+            )
+            db_url = "sqlite:///demo.db"
+            os.environ["DATABASE_URL"] = db_url
+            engine = create_engine(db_url, pool_pre_ping=True)
+        else:
+            raise
 
     if reset:
         logger.info("--reset: dropping and recreating all v2_ tables...")
-        # Use SQLAlchemy metadata drop (works for both SQLite and PostgreSQL)
         Base.metadata.drop_all(engine)
         logger.info("Tables dropped. Recreating...")
         Base.metadata.create_all(engine)
         logger.info("Tables recreated.")
-
     else:
         # Ensure tables exist (idempotent)
         Base.metadata.create_all(engine)

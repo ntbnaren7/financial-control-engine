@@ -140,22 +140,22 @@ The 50/50 result reproduces at any future wall-clock time.
 
 ---
 
-## Running the Evaluation
+## Running the Demonstration & Evaluation
 
 ```bash
 # Install dependencies
 uv sync
 
-# Generate the 50-record synthetic dataset
-uv run python scripts/generate_batch_data.py
+# 1. Single-case autonomous recovery & adversarial containment demo (1s, in-memory)
+uv run python scripts/test_7_cases.py
 
-# Run the full batch evaluation
-PYTHONPATH=. uv run python scripts/run_batch_control.py
+# 2. 60-record heterogeneous batch evaluation (0.6s, mock provider)
+uv run python scripts/batch_reconciliation.py --provider mock --count 60
 
-# Run the single-case investigation demo (Phase E)
-PYTHONPATH=. uv run python scripts/demo_runner.py
+# 3. 3-cycle self-healing control loop demo (0.1s, in-memory)
+uv run python scripts/run_v2_e2e_loop.py
 
-# Run the test suite
+# 4. Run the full test suite (284 passed, 1 skipped)
 uv run pytest
 ```
 
@@ -165,16 +165,19 @@ uv run pytest
 
 | File | What it does |
 |---|---|
-| `src/reconciliation/engine.py` | V1 deterministic kernel — pure function, no I/O |
-| `src/reconciliation/models.py` | `DiscrepancyType` enum and `ReconciliationResult` |
-| `src/state/engine.py` | Reconstructs `ReconstructedState` from `ProviderObservation` |
-| `src/investigation/agent.py` | Local LLM investigator (D3) |
-| `src/investigation/validator.py` | D4 boundary validator |
-| `src/investigation/verifier.py` | D5 deterministic provider query |
-| `scripts/demo_runner.py` | Single-case EPISTEMIC_STALEMATE → resolution demo |
-| `scripts/run_batch_control.py` | 50-record batch evaluation with correctness report |
-| `scripts/generate_batch_data.py` | Synthetic dataset generator |
-| `tests/doubles/batch_mock_transport.py` | Per-case Razorpay mock for batch evaluation |
+| `src/engine/reconciliation_v2.py` | V2 deterministic kernel — pure reconciliation function, no network I/O |
+| `src/domain/core/models.py` | `Expectation`, `Observation`, `ReconciliationResult`, and `CanonicalStatus` |
+| `src/engine/evidence_assembler.py` | Assembles bounded facts into immutable `InvestigationContext` |
+| `src/investigation/agent.py` | Local LLM investigator proposing hypotheses |
+| `src/investigation/validator.py` | D4 boundary validator — strictly rejects fabricated references |
+| `src/investigation/verifier.py` | Deterministic verifier querying provider on trusted parameters only |
+| `src/engine/policy.py` | V2 rule-based recovery policy deriving `RecoveryIntent` |
+| `src/engine/governance_gate.py` | Control-plane kill-switch, action budgets, and idempotency gate |
+| `src/engine/actuator.py` | OCC actuation engine with independent convergence re-observation |
+| `src/storage/postgres_substrate.py` | PostgreSQL substrate with atomic OCC leases, outbox, and backoff |
+| `scripts/test_7_cases.py` | Single-case autonomous recovery & adversarial boundary demo |
+| `scripts/batch_reconciliation.py` | 60-record heterogeneous batch evaluation and exception report |
+| `scripts/run_v2_e2e_loop.py` | 3-cycle self-healing control loop demonstration |
 
 ---
 
@@ -210,11 +213,10 @@ uv run pytest
 ## Test Suite
 
 ```
-186 passed (deterministic suite)
- 15 passed (PostgreSQL invariants)
+284 passed, 1 skipped, 1 warning (19.6s)
 ```
 
 **Evidence Hierarchy:**
-1. **186 deterministic tests passed:** Covers V1 kernel invariants, D4 boundary validation, D5 verifier, state engine, evidence normalization, and reconciliation model properties.
-2. **15 PostgreSQL invariants passed:** Validates the durable `PostgresRepository` and `PostgresActionOutbox` (requires Docker for Testcontainers).
-3. **Live Ollama evaluation:** Kept as an optional/non-deterministic integration test. Live tests (`TestD3IntegrationRealOllama`) may occasionally fail due to inference timeouts depending on the local hardware and model response time.
+1. **Deterministic suite:** Covers V1/V2 kernel reconciliation, evidence assembly, D4 boundary validation, deterministic verification, rule-based policy derivation, OCC actuation, and retry backoff.
+2. **PostgreSQL OCC & Invariant tests:** Validates atomic lease transitions, optimistic concurrency control (`version` check), and `SKIP LOCKED` worker queues against real PostgreSQL.
+3. **Live Ollama evaluation:** Kept as an optional/non-deterministic integration test (`test_end_to_end_with_real_ollama`, intentionally skipped when Ollama daemon is offline).

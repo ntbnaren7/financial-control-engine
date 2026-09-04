@@ -41,11 +41,16 @@ import logging
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from dotenv import load_dotenv
 
 # Pre-load .env so credentials are available to FCESettings
-load_dotenv(".env")
+load_dotenv(_project_root / ".env")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

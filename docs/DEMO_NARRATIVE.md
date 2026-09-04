@@ -51,28 +51,29 @@ Both commands run offline. No live provider credentials required.
 
 ---
 
-## Act 3 — Single-case demo (45 seconds)
+## Act 3 — Single-case demo & autonomous recovery (45 seconds)
 
 Run:
 ```bash
-PYTHONPATH=. uv run python scripts/demo_runner.py
+uv run python scripts/test_7_cases.py
 ```
 
 **Narrate while it runs:**
 
-> "This is a real EPISTEMIC_STALEMATE case — a refund was expected, the SLA has
-> expired, and the provider gave no confirmation. V1 declares stalemate."
+> "Here we demonstrate the complete autonomous loop across three distinct scenarios:
+> Scenario A is the hero path: a state mismatch discrepancy is detected (expected SETTLED,
+> observed PENDING/UNPAID). The A3 investigator forms a hypothesis, the validator approves it,
+> the deterministic verifier queries the provider, policy derives the repair, governance claims budget,
+> the actuation engine executes idempotently, and independent re-observation verifies convergence.
+> The incident reaches RESOLVED."
 
-> "The investigator proposes querying the provider for the refund record. The
-> boundary validator approves the hypothesis — the evidence IDs and intent are
-> all valid. The verifier queries the provider. A refund record comes back."
+> "Scenario B is the safe missing evidence path: the provider returns a 404 for a missing payment.
+> The verifier reports missing evidence. The system safely escalates to ESCALATED_MISSING_EVIDENCE
+> without attempting any financial mutation."
 
-> "V1 re-runs on the new evidence. VERIFIED, EXECUTED, matching amount: MATCH.
-> The case is resolved."
-
-**If running in REPLAY mode** (Ollama not available):
-> "We're running in replay mode — the investigator uses a deterministic fallback
-> hypothesis rather than the live LLM. The evaluation result is identical."
+> "Scenario C is the adversarial containment path: the untrusted LLM hallucinated a fabricated
+> evidence ID. The D4 OutputValidator catches the containment breach before any provider query runs,
+> blocking verification and safely escalating to ESCALATED_UNKNOWN."
 
 ---
 
@@ -80,29 +81,20 @@ PYTHONPATH=. uv run python scripts/demo_runner.py
 
 Run:
 ```bash
-PYTHONPATH=. uv run python scripts/run_batch_control.py
+uv run python scripts/batch_reconciliation.py --provider mock --count 60
 ```
 
 **Narrate while it runs:**
 
-> "50 predefined financial scenarios. 8 classification types. 5 that require
-> investigation."
+> "60 predefined financial scenarios across MATCH, REFUND, MISSING, and AMOUNT_MISMATCH."
 
 **After output:**
 
-> "40 were direct matches — V1 resolved them without investigation. 8 more were
-> resolved after investigation — the verifier queried the provider and V1
-> reclassified on new evidence. 2 remain explicitly unresolved."
-
-> "This one — REC-049 — the provider returned a 503 during investigation. We
-> don't know the answer, and we say so. The system preserves EPISTEMIC_STALEMATE
-> rather than manufacturing a resolution."
-
-> "This one — REC-050 — the LLM's hypothesis referenced an evidence ID that
-> doesn't exist in the bounded case. D4 rejected it. No provider query ran."
-
-> "50 cases, 50 correct final classifications against independently defined
-> ground truth. 96% resolution rate. 2 honest stalemates."
+> "40 cases (66.7%) were direct matches resolved by A1 reconciliation without investigation.
+> 11 remediated cases were autonomously investigated, verified, authorized by governance, and resolved via refund.
+> All 9 unresolved exceptions (MISSING) are explicitly preserved as named escalations
+> (ESCALATED_MISSING_EVIDENCE) rather than manufacturing a false resolution.
+> 85.0% resolution rate with zero timeouts."
 
 ---
 

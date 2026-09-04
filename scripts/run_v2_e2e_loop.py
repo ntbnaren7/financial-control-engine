@@ -1,7 +1,13 @@
 import asyncio
 import logging
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
+
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

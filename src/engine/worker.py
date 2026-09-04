@@ -27,11 +27,11 @@ from src.storage.postgres_substrate import (
     PostgresReconciliationResultRepository,
     PostgresActuationRepository,
     ControlEventType,
-
+    ActiveIncidentIdempotencyRecord,
 )
 from src.domain.investigation.lifecycle import IncidentState
 from src.domain.investigation.models import VerificationStatus, ValidationRejection, CausalHypothesis
-from src.domain.core.models import RecoveryAction, ReconciliationOutcome
+from src.domain.core.models import RecoveryAction, ReconciliationOutcome, ReconciliationResult
 from src.engine.evidence_assembler import EvidenceAssembler
 from src.engine.policy import V2PolicyEvaluator
 from src.investigation.verifier import DeterministicVerifier
@@ -68,7 +68,7 @@ class V2ControlWorker:
         investigator: Investigator,
         validator: OutputValidator,
         verifier: DeterministicVerifier,
-        razorpay_provider: 'RazorpayProvider',
+        razorpay_provider: Optional[RazorpayProvider] = None,
         settings: ControlLoopSettings = ControlLoopSettings(),
         test_hooks: Optional[Dict[str, Callable[[], None]]] = None
     ):
@@ -100,7 +100,7 @@ class V2ControlWorker:
         if name in self.test_hooks:
             self.test_hooks[name]()
 
-    async def poll_and_process(self, limit: int = 5):
+    async def poll_and_process(self, limit: int = 5) -> int:
         # Start Prometheus metrics server once (idempotent — OSError means already running)
         if not getattr(self, "_metrics_server_started", False):
             try:
@@ -145,10 +145,12 @@ class V2ControlWorker:
                     event_type=event.event_type.value
                 )
                 logger.info("Worker processing event")
-                if event.event_type == ControlEventType.OBSERVATION_INGESTED:
-                    await self._handle_observation_ingested(event.payload)
-                elif event.event_type == ControlEventType.DISCREPANCY_DETECTED:
-                    await self._handle_discrepancy(event.payload)
+                event_type: Any = event.event_type
+                payload: Dict[str, Any] = dict(event.payload) if isinstance(event.payload, dict) else {}  # type: ignore
+                if event_type == ControlEventType.OBSERVATION_INGESTED:
+                    await self._handle_observation_ingested(payload)
+                elif event_type == ControlEventType.DISCREPANCY_DETECTED:
+                    await self._handle_discrepancy(payload)
                 
                 self.event_repo.mark_processed(str(event.event_id))
             except Exception as e:
@@ -161,6 +163,17 @@ class V2ControlWorker:
                 from src.observability.metrics import inc_event_processed, observe_event_processing_latency
                 inc_event_processed(event.event_type.value)
                 observe_event_processing_latency(event.event_type.value, elapsed)
+
+        # 3. Poll for matured retry incidents
+        matured_retries = self.incident_repo.acquire_matured_retries(
+            worker_id=self.worker_id,
+            ttl_seconds=self.settings.worker_lease_ttl_seconds,
+            limit=limit,
+        )
+        for incident_record in matured_retries:
+            await self._handle_matured_retry(incident_record)
+
+        return len(events) + len(matured_retries)
 
     async def _handle_observation_ingested(self, payload: Dict[str, Any]):
         """
@@ -229,6 +242,43 @@ class V2ControlWorker:
             logger.info(f"Could not acquire lease for {active_subject}")
             return # Someone else has the lease or it's not ready
 
+        await self._process_investigation(record, recon_result)
+
+    async def _handle_matured_retry(self, record: ActiveIncidentIdempotencyRecord):
+        active_subject: str = str(record.active_subject)
+        discrepancy_reason: str = str(record.discrepancy_reason)
+        created_at: datetime = _as_utc(record.created_at) if record.created_at is not None else datetime.now(timezone.utc)
+        logger.info(
+            f"Processing matured retry for incident {record.incident_id} (subject={active_subject}, retry_count={record.retry_count})"
+        )
+        recon_result = self.recon_result_repo.find_latest_discrepancy(
+            active_subject, discrepancy_reason
+        )
+        if not recon_result:
+            from src.domain.core.models import DiscrepancyReason
+            reason_enum = None
+            if discrepancy_reason and hasattr(DiscrepancyReason, discrepancy_reason):
+                reason_enum = DiscrepancyReason[discrepancy_reason]
+            recon_result = ReconciliationResult(
+                reconciliation_id=f"rec_retry_{record.incident_id}",
+                expectation_id=active_subject if not active_subject.startswith("obs") else None,
+                observation_ids=[active_subject] if active_subject.startswith("obs") else [],
+                outcome=ReconciliationOutcome.DISCREPANCY,
+                discrepancy_reason=reason_enum,
+                reconciliation_reason="Retried discrepancy",
+                created_at=created_at,
+            )
+        await self._process_investigation(record, recon_result)
+
+    async def _process_investigation(
+        self,
+        record: ActiveIncidentIdempotencyRecord,
+        recon_result: ReconciliationResult,
+    ):
+        active_subject: str = str(record.active_subject)
+        discrepancy_reason: str = str(record.discrepancy_reason)
+        reconciliation_id: str = recon_result.reconciliation_id
+
         structlog.contextvars.bind_contextvars(
             reconciliation_id=reconciliation_id,
             active_subject=active_subject,
@@ -278,7 +328,7 @@ class V2ControlWorker:
             
             # A3: AI Investigation (Skip if already have a validated hypothesis from a previous retry)
             self._trigger_hook("before_a3")
-            if record.state == IncidentState.VERIFYING and record.hypothesis_payload:
+            if record.state == IncidentState.VERIFYING and record.hypothesis_payload is not None:  # type: ignore
                 logger.info(f"Reusing existing hypothesis for {active_subject}")
                 hypothesis = CausalHypothesis.model_validate(record.hypothesis_payload)
             else:

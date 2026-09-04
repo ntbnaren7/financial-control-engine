@@ -66,13 +66,15 @@ def _map_simulator_result(raw: str) -> ActuationState:
 
 from src.integrations.razorpay.provider import RazorpayProvider
 
-class RazorpayRefundActuator:
+class RazorpayRefundActuator(ProviderActuator):
     """Issues POST /v1/payments/{id}/refund with X-Refund-Idempotency header."""
 
-    def __init__(self, provider: RazorpayProvider):
+    def __init__(self, provider: Optional[RazorpayProvider] = None):
         self.provider = provider
 
     async def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
+        if not self.provider:
+            raise RuntimeError("Razorpay provider not configured")
         logger.info(
             "Razorpay API POST /v1/payments/{target_id}/refund",
             target_id=target_id,
@@ -100,7 +102,7 @@ class RazorpayRefundActuator:
             return ActuationState.TIMEOUT_UNKNOWN
 
 
-class MerchantRepairActuator:
+class MerchantRepairActuator(ProviderActuator):
     """Issues an internal order-state-transition request to the Merchant API."""
 
     async def execute(self, target_id: str, idempotency_key: str, payload: Dict[str, Any]) -> ActuationState:
@@ -128,7 +130,7 @@ class ActuationEngine:
         self,
         investigation_repo: PostgresActiveIncidentRepository,
         actuation_repo: PostgresActuationRepository,
-        razorpay_provider: RazorpayProvider,
+        razorpay_provider: Optional[RazorpayProvider] = None,
     ):
         self.investigation_repo = investigation_repo
         self.actuation_repo = actuation_repo

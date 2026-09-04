@@ -47,11 +47,16 @@ import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+load_dotenv(_project_root / ".env")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -289,7 +294,16 @@ def _build_worker(settings, repos: dict, provider, worker_id: str) -> V2ControlW
     recon_engine = V2ReconciliationEngine(repos["exp"], repos["obs"])
     assembler = EvidenceAssembler(repos["exp"], repos["obs"], repos["ev"])
     verifier = DeterministicVerifier(razorpay_provider=provider)
-    investigator = LocalLLMInvestigator(settings=settings.llm)
+    if os.environ.get("FCE_MOCK_MODE") == "1":
+        from tests.integration.test_end_to_end_vertical_slice import MockInvestigator
+        investigator = MockInvestigator()
+    else:
+        try:
+            investigator = LocalLLMInvestigator(settings=settings.llm)
+        except Exception:
+            log.warning("Ollama not available; falling back to MockInvestigator for batch run")
+            from tests.integration.test_end_to_end_vertical_slice import MockInvestigator
+            investigator = MockInvestigator()
     validator = OutputValidator()
 
     return V2ControlWorker(

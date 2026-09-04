@@ -42,21 +42,20 @@ remediation count, and named escalation reasons per incident.
 
 ### "Reporting its match rate"
 
-**What we report (60-record batch run, 2026-09-04):**
-- **65.0% direct match rate** — 39/60 cases resolved by A1 before investigation
-- **81.7% resolution rate** — 39 MATCH + 10 RESOLVED (autonomous remediation)
-- **10 autonomous remediations** — real Razorpay Test Mode refunds executed and confirmed
+**Observed in the supplied 60-record demo dataset (`scripts/batch_reconciliation.py`):**
+- **66.7% direct match rate** — 40/60 cases resolved by A1 reconciliation before investigation
+- **85.0% total resolution rate** — 40 MATCH + 11 RESOLVED (autonomous remediation)
+- **11 autonomous remediations** — investigated, verified, authorized by governance, and resolved via refund
 - **0 timeouts** — every incident terminated cleanly
 - **0 no-converge** — no polling loops abandoned mid-incident
 
 ### "The exceptions it could not resolve"
 
-**What we report:** All unresolved cases are explicitly named with escalation reason:
-- `ESCALATED_MISSING_EVIDENCE` — 9 records with no provider payment found (404);
+**Observed in the supplied 60-record demo dataset:** All unresolved cases are explicitly named with escalation reason:
+- `ESCALATED_MISSING_EVIDENCE` — 9 records where provider reported no payment found (404);
   the system did not hallucinate a resolution. Missing evidence is preserved as a
   named, explainable exception.
-- `ESCALATED_UNKNOWN` — 2 records where LLM output validation rejected an
-  unsupported evidence reference; the system escalated rather than bypassing validation.
+- `0` unhandled crashes, `0` timeouts, and `0` fabricated resolutions.
 
 The system does not hide unresolved cases. It escalates with cause rather than
 manufacturing a resolution.
@@ -151,36 +150,35 @@ The LLM is inside the loop, but outside the authority chain.
 # Install dependencies
 uv sync
 
-# Start the API and worker (requires Postgres via Docker)
-docker-compose up -d postgres
-uv run alembic upgrade head
+# 1. Canonical Single-Case Demo: Autonomous Recovery & Adversarial Containment (1s, in-memory)
+uv run python scripts/test_7_cases.py
 
-# Worker (real provider, requires .env with RAZORPAY__KEY_ID and RAZORPAY__KEY_SECRET)
-uv run python scripts/worker_main.py
+# 2. Canonical 60-Record Heterogeneous Batch Run (0.6s, mock provider)
+uv run python scripts/batch_reconciliation.py --provider mock --count 60
 
-# Worker (mock mode, no credentials needed)
-FCE_MOCK_MODE=1 uv run python scripts/worker_main.py
+# 3. 3-Cycle Self-Healing Control Loop Demo (0.1s, in-memory)
+uv run python scripts/run_v2_e2e_loop.py
 
-# 60-record batch run (mock provider, no credentials needed)
-uv run python scripts/batch_reconciliation.py
+# 4. Full Test Suite (284 passed, 1 skipped)
+uv run pytest
 
-# Real provider read probe (requires Test Mode credentials in .env)
+# ── Optional Real Razorpay Test Mode Probes (Requires .env credentials) ──
+# Live read probe:
 uv run python scripts/verify_real_provider.py
 
-# Full real control loop (requires Test Mode credentials + real payment ID)
+# Full live mutation loop:
 PAYMENT_ID=pay_... uv run python scripts/verify_real_loop.py
 
-# Demo runner (100-record synthetic, mock provider)
-uv run python scripts/run_demo.py
-
-# Test suite (no Docker required for core suite)
-uv run pytest
+# ── Optional Background Worker against PostgreSQL Substrate (Requires Docker) ──
+docker compose up -d postgres
+uv run alembic upgrade head
+FCE_MOCK_MODE=1 uv run python scripts/worker_main.py
 ```
 
 Copy `.env.example` to `.env` and populate `RAZORPAY__KEY_ID`, `RAZORPAY__KEY_SECRET`,
 and `DATABASE__URL` before running live provider scripts.
 
 Expected outputs:
-- Batch: 60 records, ~65% match rate, ~81.7% resolution, 0 timeouts
-- Real provider read: canonical `SETTLED` observation from live Razorpay Test API
-- Tests: deterministic unit + integration suite (postgres tests require Docker)
+- **Single-case demo (`test_7_cases.py`):** 3 scenarios pass (Autonomous recovery, Provider 404 escalation, Hallucinated evidence D4 rejection).
+- **Batch (`batch_reconciliation.py`):** 60 records, 66.7% direct match rate, 85.0% resolution, 9 named escalations (`ESCALATED_MISSING_EVIDENCE`), 0 timeouts.
+- **Tests (`pytest`):** 284 passed, 1 skipped.

@@ -6,11 +6,18 @@ Exercises the complete FCE V2 control loop using MockRazorpayProvider.
 Scenarios:
   A - Successful verification → Policy → GovernanceGate → Actuation → RESOLVED
   B - Verification failure (provider returns 404) → ESCALATED_MISSING_EVIDENCE
+  C - Adversarial injection (hallucinated evidence) → D4 boundary rejects → ESCALATED_UNKNOWN
 """
 import asyncio
 import logging
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 from datetime import datetime, timezone
+
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -232,6 +239,69 @@ async def run_scenario_b(worker, exp_repo, obs_repo, evt_repo, session_maker):
             RESULTS["B"] = f"FAILED ({incident.state})"
 
 
+async def run_scenario_c(worker, exp_repo, obs_repo, evt_repo, session_maker):
+    """
+    Scenario C: Adversarial / Hallucinated Evidence Reference
+    LLM references non-existent evidence_id → D4 Validator rejects → ESCALATED_UNKNOWN
+    Zero provider queries or financial mutations attempted.
+    """
+    payment_id_c = "pay_scenario_c_hallucinated"
+    receipt_c = "rcpt_c"
+    now = datetime.now(timezone.utc)
+
+    exp_c = Expectation(
+        expectation_id="exp_c",
+        domain="PAYMENT",
+        expected_canonical_status=CanonicalStatus.SETTLED,
+        expected_amount=3000,
+        currency="INR",
+        source_system="OMS",
+        business_status=BusinessStatus.OPEN,
+        correlation_keys=CorrelationKeys(
+            provider="razorpay", provider_ref=payment_id_c, internal_ref=receipt_c
+        ),
+        created_at=now,
+    )
+    exp_repo.save(exp_c)
+
+    obs_c = Observation(
+        observation_id="obs_c",
+        provider="Razorpay",
+        provider_reference=payment_id_c,
+        observation_type="API_PAYMENT",
+        canonical_status=CanonicalStatus.FAILED,
+        observed_amount=3000,
+        currency="INR",
+        evidence_ids=[],
+        correlation_keys=CorrelationKeys(
+            provider="razorpay", provider_ref=payment_id_c, internal_ref=receipt_c
+        ),
+        observed_at=now,
+        ingestion_event_id="evt_c",
+    )
+    obs_repo.save(obs_c)
+
+    evt_repo.publish(ControlEventType.OBSERVATION_INGESTED, {"observation_id": "obs_c"})
+
+    for _ in range(4):
+        await worker.poll_and_process()
+
+    with session_maker() as session:
+        incidents = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject="exp_c").all()
+        if not incidents:
+            logger.error("FAILED [C]: no incident record found")
+            RESULTS["C"] = "FAILED (no incident)"
+            return
+        incident = incidents[0]
+        logger.info(f"Scenario C final state: {incident.state}")
+        if incident.state == IncidentState.ESCALATED_UNKNOWN.value:
+            logger.info("SUCCESS [C]: D4 Boundary Validator rejected hallucinated evidence — safely escalated without mutation")
+            RESULTS["C"] = "PASSED"
+        else:
+            logger.error(f"FAILED [C]: Ended in {incident.state}")
+            RESULTS["C"] = f"FAILED ({incident.state})"
+
+
 async def main():
     logger.info("Initializing in-memory Substrate (SQLite)...")
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
@@ -249,18 +319,34 @@ async def main():
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
 
-    # Deterministic mock LLM — always proposes provider-state verification
+    # Deterministic mock LLM:
+    # Cites valid proposal for A/B, but deliberately injects hallucinated evidence ID for C
+    def _mock_investigate(agent_input: dict) -> CausalHypothesis:
+        obs_ids = [o.get("observation_id") for o in agent_input.get("observations", [])]
+        if "obs_c" in obs_ids:
+            return CausalHypothesis(
+                hypothesis_id="hyp_adversarial_hallucination",
+                claim="Payment settled based on external rumour.",
+                supporting_evidence_ids=["ev_hallucinated_fabricated_id_99999"],  # FABRICATED
+                contradicting_evidence_ids=[],
+                missing_evidence="None",
+                confidence="HIGH",
+                disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
+                verification_intents=[VerificationIntent.QUERY_PROVIDER_STATE],
+            )
+        return CausalHypothesis(
+            hypothesis_id="hyp_test",
+            claim="Provider may have processed the payment after merchant timeout.",
+            supporting_evidence_ids=[],
+            contradicting_evidence_ids=[],
+            missing_evidence="Need live Razorpay payment state.",
+            confidence="HIGH",
+            disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
+            verification_intents=[VerificationIntent.QUERY_PROVIDER_STATE],
+        )
+
     investigator = MagicMock(spec=Investigator)
-    investigator.investigate = MagicMock(return_value=CausalHypothesis(
-        hypothesis_id="hyp_test",
-        claim="Provider may have processed the payment after merchant timeout.",
-        supporting_evidence_ids=[],
-        contradicting_evidence_ids=[],
-        missing_evidence="Need live Razorpay payment state.",
-        confidence="HIGH",
-        disposition=InvestigationDisposition.VERIFICATION_PROPOSED,
-        verification_intents=[VerificationIntent.QUERY_PROVIDER_STATE],
-    ))
+    investigator.investigate = MagicMock(side_effect=_mock_investigate)
 
     validator = OutputValidator()
     provider = MockRazorpayProvider()
@@ -298,6 +384,10 @@ async def main():
     logger.info("")
     logger.info("--- Scenario B: Verification Failure -> Escalation ---")
     await run_scenario_b(worker, exp_repo, obs_repo, evt_repo, SessionMaker)
+
+    logger.info("")
+    logger.info("--- Scenario C: Adversarial Hallucination -> Boundary Rejection ---")
+    await run_scenario_c(worker, exp_repo, obs_repo, evt_repo, SessionMaker)
 
     logger.info("")
     logger.info("=" * 52)

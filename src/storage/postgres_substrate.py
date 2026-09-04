@@ -42,7 +42,7 @@ class SubstrateExpectationRecord(Base):
     def to_domain(self) -> Expectation:
         # Enforce UTC timezone for SQLite compatibility
         dt = self.created_at
-        if dt and dt.tzinfo is None:
+        if dt is not None and dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
             
         status_val = self.expected_state
@@ -581,6 +581,10 @@ class PostgresActiveIncidentRepository:
             if record.state in [IncidentState.RESOLVED, IncidentState.COMPLETED] or record.state.value.startswith("ESCALATED"):
                 return None # Terminal states cannot be leased autonomously
 
+            # Gated by retry backoff: cannot acquire if backoff has not expired
+            if record.next_retry_at is not None and record.next_retry_at > now:
+                return None
+
             # Transition state if necessary
             current_state = record.state
             new_state = current_state
@@ -649,6 +653,57 @@ class PostgresActiveIncidentRepository:
                 session.commit()
                 return True
             return False
+
+    def acquire_matured_retries(
+        self, worker_id: str, ttl_seconds: int, limit: int = 5
+    ) -> List[ActiveIncidentIdempotencyRecord]:
+        """
+        Discovers and atomically claims leases on matured retryable incidents.
+        Eligibility:
+        - state == INVESTIGATING
+        - no active lease (lease_expires_at IS NULL or lease_expires_at < now)
+        - backoff has expired (next_retry_at IS NULL or next_retry_at <= now)
+        Uses SELECT ... FOR UPDATE SKIP LOCKED on PostgreSQL to prevent concurrent claim contention.
+        """
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta
+        from sqlalchemy import or_
+        expires_at = now + timedelta(seconds=ttl_seconds)
+
+        with self.session_maker() as session:
+            session.expire_on_commit = False
+            query = (
+                session.query(ActiveIncidentIdempotencyRecord)
+                .filter(
+                    ActiveIncidentIdempotencyRecord.state == IncidentState.INVESTIGATING,
+                    or_(
+                        ActiveIncidentIdempotencyRecord.lease_expires_at.is_(None),
+                        ActiveIncidentIdempotencyRecord.lease_expires_at < now,
+                    ),
+                    or_(
+                        ActiveIncidentIdempotencyRecord.next_retry_at.is_(None),
+                        ActiveIncidentIdempotencyRecord.next_retry_at <= now,
+                    ),
+                )
+                .order_by(ActiveIncidentIdempotencyRecord.next_retry_at.asc())
+                .limit(limit)
+            )
+
+            is_sqlite = session.bind.dialect.name == "sqlite"
+            if not is_sqlite:
+                query = query.with_for_update(skip_locked=True)
+
+            records = query.all()
+            claimed = []
+            for record in records:
+                record.lease_owner = worker_id
+                record.lease_expires_at = expires_at
+                claimed.append(record)
+
+            session.commit()
+            for r in claimed:
+                session.expunge(r)
+            return claimed
 
     def update_incident_state_occ(self, active_subject: str, discrepancy_reason: str, current_version: int, new_state: IncidentState) -> bool:
         """
@@ -890,6 +945,30 @@ class PostgresReconciliationResultRepository:
         with self.session_maker() as session:
             record = session.query(SubstrateReconciliationResultRecord).filter_by(reconciliation_id=reconciliation_id).first()
             return record.to_domain() if record else None
+
+    def find_latest_discrepancy(self, active_subject: str, discrepancy_reason: Optional[str] = None) -> Optional[ReconciliationResult]:
+        with self.session_maker() as session:
+            query = session.query(SubstrateReconciliationResultRecord).filter(
+                SubstrateReconciliationResultRecord.outcome == ReconciliationOutcome.DISCREPANCY,
+            )
+            if discrepancy_reason:
+                from src.domain.core.models import DiscrepancyReason
+                if hasattr(DiscrepancyReason, discrepancy_reason):
+                    query = query.filter(SubstrateReconciliationResultRecord.discrepancy_reason == DiscrepancyReason[discrepancy_reason])
+
+            # Check expectation_id first
+            exp_match = query.filter(
+                SubstrateReconciliationResultRecord.expectation_id == active_subject
+            ).order_by(SubstrateReconciliationResultRecord.created_at.desc()).first()
+            if exp_match:
+                return exp_match.to_domain()
+
+            # Check observation_ids
+            all_records = query.order_by(SubstrateReconciliationResultRecord.created_at.desc()).all()
+            for r in all_records:
+                if r.observation_ids and active_subject in r.observation_ids:
+                    return r.to_domain()
+            return None
 
 class PostgresControlEventRepository:
     def __init__(self, session_maker):

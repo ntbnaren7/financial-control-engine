@@ -28,12 +28,14 @@ import asyncio
 import argparse
 import os
 import sys
+from pathlib import Path
 
-# Pre-load .env so credentials are visible to FCESettings.load() regardless of
-# whether the shell has already exported them (e.g. when running via uv without
-# a full process tree that inherits the uvicorn environment).
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from dotenv import load_dotenv
-load_dotenv(".env")
+load_dotenv(_project_root / ".env")
 
 from src.config.settings import FCESettings
 from src.integrations.razorpay.real_provider import RealRazorpayProvider
