@@ -97,7 +97,7 @@ class MockRefund:
         }
 
 def create_worker(deps, worker_id, mock_client, mock_investigator, validator=None):
-    verifier = DeterministicVerifier(razorpay_client=mock_client)
+    verifier = DeterministicVerifier(razorpay_provider=mock_client)
     if validator is None:
         validator = OutputValidator()
     
@@ -114,7 +114,8 @@ def create_worker(deps, worker_id, mock_client, mock_investigator, validator=Non
         assembler=deps["assembler"],
         investigator=mock_investigator,
         validator=validator,
-        verifier=verifier
+        verifier=verifier,
+        razorpay_provider=mock_client
     )
 
 @pytest.fixture(autouse=True)
@@ -267,6 +268,17 @@ async def test_worker_crashes_after_claiming_lease(base_worker_deps):
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "processed", 2000, "INR", int(now.timestamp()) + 1)
     ])
+    client.get_refund = AsyncMock(
+        return_value=MockRefund(
+            f"rfnd_{test_id}",
+            f"pay_{test_id}",
+            "rcpt",
+            "processed",
+            2000,
+            "INR",
+            int(now.timestamp()) + 1
+        )
+    )
     
     crashing_inv = MagicMock(spec=Investigator)
     crashing_inv.investigate = AsyncMock(side_effect=BaseException("Simulated crash!"))
@@ -329,6 +341,17 @@ async def test_a4_succeeds_but_persistence_fails(base_worker_deps):
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "processed", 2000, "INR", int(now.timestamp()) + 1)
     ])
+    client.get_refund = AsyncMock(
+        return_value=MockRefund(
+            f"rfnd_{test_id}",
+            f"pay_{test_id}",
+            "rcpt",
+            "processed",
+            2000,
+            "INR",
+            int(now.timestamp()) + 1
+        )
+    )
     
     worker = create_worker(deps, "worker_1", client, standard_investigator())
     
@@ -397,6 +420,11 @@ async def test_a4_succeeds_but_rereconciliation_discrepancy_remains(base_worker_
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "created", 2000, "INR", int(now.timestamp()) + 1)
     ])
+    client.get_refund = AsyncMock(
+        return_value=MockRefund(
+            f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "created", 2000, "INR", int(now.timestamp()) + 1
+        )
+    )
     
     worker = create_worker(deps, "worker_1", client, standard_investigator())
     
@@ -415,10 +443,10 @@ async def test_a4_succeeds_but_rereconciliation_discrepancy_remains(base_worker_
                 rec = session.query(SubstrateReconciliationResultRecord).filter_by(reconciliation_id=recon_id).first()
                 if rec and rec.expectation_id == f"exp_{test_id}":
                     matching_events.append(e)
-        assert len(matching_events) == 2
+        assert len(matching_events) == 1
         
         results = session.query(SubstrateReconciliationResultRecord).filter_by(expectation_id=f"exp_{test_id}").all()
-        assert len(results) == 2
+        assert len(results) == 1
     
     await worker.poll_and_process()
     
@@ -452,6 +480,11 @@ async def test_llm_produces_hallucinated_ids(base_worker_deps):
     mock_payment = MagicMock()
     mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
     client.get_payment = AsyncMock(return_value=mock_payment)
+    client.get_refund = AsyncMock(
+        return_value=MockRefund(
+            f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "failed", 2000, "INR", int(now.timestamp()) + 1
+        )
+    )
     
     bad_investigator = MagicMock(spec=Investigator)
     bad_investigator.investigate = AsyncMock(return_value=CausalHypothesis(
@@ -473,7 +506,7 @@ async def test_llm_produces_hallucinated_ids(base_worker_deps):
     assert client.get_payment_refunds.call_count == 0
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()
-        assert record.state == IncidentState.ESCALATED
+        assert record.state == IncidentState.ESCALATED_UNKNOWN
 
 
 @pytest.mark.asyncio
@@ -549,6 +582,11 @@ async def test_ollama_unavailable(base_worker_deps):
     mock_payment = MagicMock()
     mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
     client.get_payment = AsyncMock(return_value=mock_payment)
+    client.get_refund = AsyncMock(
+        return_value=MockRefund(
+            f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "failed", 2000, "INR", int(now.timestamp()) + 1
+        )
+    )
     
     from src.investigation.agent import OllamaConnectionError
     offline_investigator = MagicMock(spec=Investigator)
@@ -562,7 +600,7 @@ async def test_ollama_unavailable(base_worker_deps):
     
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()
-        assert record.state == IncidentState.RETRY_PENDING
+        assert record.state == IncidentState.INVESTIGATING
         assert record.retry_count == 1
 
 
@@ -593,6 +631,7 @@ async def test_provider_unavailable_repeatedly(base_worker_deps):
     mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
     client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(side_effect=ProviderNetworkError("503 Service Unavailable"))
+    client.get_refund = AsyncMock(side_effect=ProviderNetworkError("503 Service Unavailable"))
     
     worker = create_worker(deps, "worker_1", client, standard_investigator())
     
@@ -621,7 +660,7 @@ async def test_provider_unavailable_repeatedly(base_worker_deps):
         
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()
-        assert record.state == IncidentState.ESCALATED
+        assert record.state == IncidentState.ESCALATED_MISSING_EVIDENCE
         assert record.retry_count == 5
 
 

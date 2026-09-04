@@ -108,6 +108,8 @@ async def razorpay_webhook(
             "payload_id": saved.payload_id,
             "event_type": event_type,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         err_str = traceback.format_exc()

@@ -86,7 +86,7 @@ async def test_verifier_success(mock_razorpay_client, sample_hypothesis, sample_
         MockRefund("rfnd_123", "pay_123", "rcpt_123", "processed", 2000, "INR", 1600000000)
     ]
     
-    verifier = DeterministicVerifier(razorpay_client=mock_razorpay_client)
+    verifier = DeterministicVerifier(razorpay_provider=mock_razorpay_client)
     
     results = await verifier.verify(sample_hypothesis, sample_context)
     assert len(results) == 1
@@ -127,7 +127,7 @@ async def test_verifier_missing_parameters(mock_razorpay_client, sample_hypothes
         assembled_at=now
     )
     
-    verifier = DeterministicVerifier(razorpay_client=mock_razorpay_client)
+    verifier = DeterministicVerifier(razorpay_provider=mock_razorpay_client)
     results = await verifier.verify(sample_hypothesis, bad_context)
     
     assert len(results) == 1
@@ -140,7 +140,7 @@ async def test_verifier_missing_parameters(mock_razorpay_client, sample_hypothes
 async def test_verifier_network_failure(mock_razorpay_client, sample_hypothesis, sample_context):
     mock_razorpay_client.get_payment_refunds.side_effect = ProviderNetworkError("Timeout")
     
-    verifier = DeterministicVerifier(razorpay_client=mock_razorpay_client)
+    verifier = DeterministicVerifier(razorpay_provider=mock_razorpay_client)
     results = await verifier.verify(sample_hypothesis, sample_context)
     
     assert len(results) == 1

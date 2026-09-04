@@ -179,21 +179,28 @@ def test_6_unversioned_observation_replay(db_session_maker):
 def test_7_api_startup_failure():
     """API without DATABASE_URL -> Startup failure"""
     from src.api.main import lifespan, app
+    from src.api import deps
     import contextlib
-    original_db = os.environ.get("DATABASE_URL")
-    if "DATABASE_URL" in os.environ:
-        del os.environ["DATABASE_URL"]
+    
+    # Clear the cached session factory if any
+    original_session_factory = deps._session_factory
+    deps._session_factory = None
         
     try:
-        with pytest.raises(RuntimeError, match="DATABASE_URL is required"):
-            async def run():
-                async with lifespan(app):
-                    pass
-            import asyncio
-            asyncio.run(run())
+        with patch("src.api.deps.FCESettings.load") as mock_load:
+            # Mock settings to return an empty db_url
+            mock_settings = MagicMock()
+            mock_settings.database.url.get_secret_value.return_value = ""
+            mock_load.return_value = mock_settings
+            
+            with pytest.raises(RuntimeError, match="DATABASE_URL.*is required"):
+                async def run():
+                    async with lifespan(app):
+                        pass
+                import asyncio
+                asyncio.run(run())
     finally:
-        if original_db:
-            os.environ["DATABASE_URL"] = original_db
+        deps._session_factory = original_session_factory
 
 @pytest.mark.asyncio
 async def test_8_verification_routing():

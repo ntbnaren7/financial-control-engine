@@ -484,14 +484,20 @@ class V2ControlWorker:
                     record=decision.actuation_record
                 )
             else:
-                # Fallback for legacy tests
-                self.incident_repo.transition_to_actuating(active_subject, discrepancy_reason)
+                # Fallback for legacy tests: mirror the GovernanceGate sequence.
+                # execute_intent() performs Tx1 internally (ACTIONABLE → ACTUATION_PENDING via OCC).
+                # We must NOT call transition_to_actuating() before Tx1, or the OCC inside
+                # execute_intent() will overwrite ACTUATING → ACTUATION_PENDING, causing the
+                # subsequent ACTUATING → REOBSERVING transition to fail.
                 actuation_state = await self.actuator.execute_intent(
                     intent=intent,
                     execution_identity=active_subject,
                     discrepancy_reason=discrepancy_reason,
                     incident_version=int(record.version)  # type: ignore
                 )
+                # Tx1 is complete: incident is now ACTUATION_PENDING. Advance to ACTUATING
+                # (matching the GovernanceGate path) before the post-network transitions.
+                self.incident_repo.transition_to_actuating(active_subject, discrepancy_reason)
             
             if actuation_state == ActuationState.REJECTED or actuation_state == ActuationState.ESCALATED:
                 logger.error(f"Actuation {actuation_state.value} for {active_subject}. Escalating.")
@@ -542,11 +548,13 @@ class V2ControlWorker:
                 inc_control_loop_outcome("resolved")
             else:
                 if actuation_state == ActuationState.TIMEOUT_UNKNOWN:
-                    logger.warning(f"Outcome UNKNOWN and state did not reconcile for {active_subject}. Scheduling retry.")
-                    r_count = int(record.retry_count) # type: ignore
-                    delay = 30 * (2 ** r_count)
-                    self.incident_repo.schedule_retry(active_subject, discrepancy_reason, self.worker_id, delay)
-                    inc_control_loop_outcome("retry_pending")
+                    # Mutation outcome was ambiguous and re-observation did not confirm convergence.
+                    # REOBSERVING has no legal autonomous path back to INVESTIGATING — that
+                    # transition is reserved for operator-driven recovery from an escalated state.
+                    # Escalate so an operator can confirm the external mutation and re-enqueue.
+                    logger.error(f"Outcome UNKNOWN and state did not reconcile for {active_subject}. ESCALATED_CONVERGENCE_FAILED.")
+                    self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_CONVERGENCE_FAILED)
+                    inc_control_loop_outcome("escalated")
                 else:
                     logger.error(f"Actuation succeeded but convergence not established for {active_subject}. ESCALATED_CONVERGENCE_FAILED.")
                     self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_CONVERGENCE_FAILED)

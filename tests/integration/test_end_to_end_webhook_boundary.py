@@ -233,11 +233,12 @@ async def test_full_phase8d_vertical_slice_closed_loop(client_and_repos):
     # 5. Deterministic Verifier Execution
     mock_razorpay_client = MagicMock()
     mock_payment = MagicMock()
+    mock_payment.id = "pay_test"
     mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
     mock_razorpay_client.get_payment = AsyncMock(return_value=mock_payment)
     mock_razorpay_client.get_payment_refunds = AsyncMock(return_value=[])
 
-    verifier = DeterministicVerifier(razorpay_client=mock_razorpay_client)
+    verifier = DeterministicVerifier(razorpay_provider=mock_razorpay_client)
     verification_results = await verifier.verify(validated_hypothesis, context)
     assert len(verification_results) == 1
     assert verification_results[0].status == VerificationStatus.SUCCEEDED
@@ -259,12 +260,12 @@ async def test_full_phase8d_vertical_slice_closed_loop(client_and_repos):
 
     # 7. Actuation Boundary
     actuator = SimulatedActuator()
-    outcome = actuator.execute(intent)
+    outcome = await actuator.execute(intent)
     assert outcome == ActuationOutcome.SUCCESS
 
     # 8. Re-observation & Final Reconciliation Check
     observer = SimulatedObserver()
-    final_merchant_obs = observer.observe_merchant_order(order_id)
+    final_merchant_obs = await observer.observe_merchant_order(order_id)
     assert final_merchant_obs is not None
     assert final_merchant_obs.canonical_status == CanonicalStatus.SETTLED
 
@@ -308,7 +309,8 @@ def test_stale_lease_claiming_after_worker_crash(client_and_repos):
     assert stored[0].canonical_status == CanonicalStatus.SETTLED
 
 
-def test_actuation_fault_injection_timeout():
+@pytest.mark.asyncio
+async def test_actuation_fault_injection_timeout():
     """Failure Injection: Simulator timeout forces independent observation and safe recovery."""
     simulator.reset()
     order_id = "ord_fault_1"
@@ -327,12 +329,12 @@ def test_actuation_fault_injection_timeout():
         expected_provider_state="SETTLED",
     )
 
-    outcome = actuator.execute(intent)
+    outcome = await actuator.execute(intent)
     assert outcome == ActuationOutcome.TIMEOUT_UNKNOWN
 
     # Re-observation independently verifies whether state transitioned or not
     observer = SimulatedObserver()
-    current_obs = observer.observe_merchant_order(order_id)
+    current_obs = await observer.observe_merchant_order(order_id)
     assert current_obs is not None
     # Because it timed out, order remained UNPAID (PENDING), preventing false-positive resolution
     assert current_obs.canonical_status == CanonicalStatus.PENDING

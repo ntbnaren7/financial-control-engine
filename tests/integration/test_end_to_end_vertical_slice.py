@@ -59,7 +59,7 @@ def clean_db(postgres_engine):
 class MockDeterministicVerifier(DeterministicVerifier):
     """Mocks A4 Verification output for the vertical slice tests."""
     def __init__(self, override_observations=None):
-        super().__init__(razorpay_client=None)  # type: ignore
+        super().__init__(razorpay_provider=None)  # type: ignore
         self.override_observations = override_observations or []
         
     async def verify(self, hypothesis, context):
@@ -77,7 +77,7 @@ class MockDeterministicVerifier(DeterministicVerifier):
 
 class RejectingMockVerifier(DeterministicVerifier):
     def __init__(self):
-        super().__init__(razorpay_client=None)  # type: ignore
+        super().__init__(razorpay_provider=None)  # type: ignore
 
     async def verify(self, hypothesis, context):
         from src.domain.investigation.models import VerificationResult, VerificationStatus, VerificationIntent
@@ -157,7 +157,7 @@ def create_worker(session_maker, verifier):
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
     
-    return V2ControlWorker(
+    worker = V2ControlWorker(
         worker_id="test_worker",
         event_repo=evt_repo,
         incident_repo=inc_repo,
@@ -171,8 +171,11 @@ def create_worker(session_maker, verifier):
         investigator=MockInvestigator(),
         validator=OutputValidator(),
         verifier=verifier,
+        razorpay_provider=None, # Mock provider is fine here
         settings=ControlLoopSettings()
-    ), inc_repo, evt_repo
+    )
+    worker.governance_gate = None
+    return worker, inc_repo, evt_repo
 
 @pytest.mark.asyncio
 async def test_hero_incident_vertical_slice(session_maker):
@@ -220,7 +223,7 @@ async def test_unsafe_hypothesis_rejected(session_maker):
     # Incident should be ESCALATED
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value) # obs1 is the active_subject here
     assert active is not None
-    assert active.state == IncidentState.ESCALATED # type: ignore
+    assert active.state == IncidentState.ESCALATED_MISSING_EVIDENCE # type: ignore
 
 @pytest.mark.asyncio
 async def test_unknown_action_outcome_forces_independent_decision(session_maker):
@@ -240,12 +243,13 @@ async def test_unknown_action_outcome_forces_independent_decision(session_maker)
     await worker.poll_and_process()
     
     # Because of TIMEOUT_UNKNOWN, the actuator returned TIMEOUT_UNKNOWN.
-    # The system re-observed. BUT the external system state was actually unchanged because TIMEOUT mock didn't change it.
-    # So the reconciliation re-evaluated UNPAID and CAPTURED, resulting in DISCREPANCY.
-    # Verify it was put into RETRY_PENDING
+    # The system re-observed, but the external state was unchanged (TIMEOUT mock did not mutate it).
+    # Re-reconciliation still shows DISCREPANCY. Per the V2 state machine, REOBSERVING has no
+    # autonomous path back to INVESTIGATING — escalating to ESCALATED_CONVERGENCE_FAILED is the
+    # correct terminal state. Operator intervention re-enqueues from there.
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == IncidentState.RETRY_PENDING # type: ignore
+    assert active.state == IncidentState.ESCALATED_CONVERGENCE_FAILED # type: ignore
 
 @pytest.mark.asyncio
 async def test_duplicate_concurrent_action_idempotency(session_maker):

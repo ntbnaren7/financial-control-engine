@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from src.config.settings import FCESettings
 from src.domain.core.models import (
     Expectation, Observation, ReconciliationOutcome, BusinessStatus,
-    ReconciliationResult, DiscrepancyReason
+    ReconciliationResult, DiscrepancyReason, CanonicalStatus
 )
 from src.storage.postgres.models import Base
 from src.storage.postgres_substrate import (
@@ -95,7 +95,7 @@ def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
                     provider="razorpay",
                     provider_reference="ref1",
                     observation_type="refund",
-                    canonical_status="SETTLED",
+                    canonical_status=CanonicalStatus.SETTLED,
                     observed_amount=100,
                     currency="INR",
                     evidence_ids=[]
@@ -124,7 +124,8 @@ def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
             assembler=EvidenceAssembler(PostgresExpectationRepository(SessionMaker), PostgresObservationRepository(SessionMaker), PostgresEvidenceRepository(SessionMaker)),
             investigator=MockInvestigator(),
             validator=OutputValidator(),
-            verifier=MockVerifier(razorpay_client=mock_razorpay),
+            verifier=MockVerifier(razorpay_provider=mock_razorpay),
+            razorpay_provider=mock_razorpay,
             settings=FCESettings.load().control_loop,
             test_hooks={hook_to_crash: crash_hook}
         )
@@ -189,8 +190,8 @@ def test_crash_convergence(crash_hook, postgres_url, db_session_maker):
     evt_repo = PostgresControlEventRepository(db_session_maker)
     inc_repo = PostgresActiveIncidentRepository(db_session_maker)
     
-    exp = Expectation(expectation_id=exp_id, domain="Refund", expected_canonical_status="SETTLED", expected_amount=100, currency="INR", source_system="ledger")
-    obs = Observation(observation_id=obs_id, provider="razorpay", provider_reference="ref1", observation_type="refund", canonical_status="FAILED", observed_amount=100, currency="INR", evidence_ids=[])
+    exp = Expectation(expectation_id=exp_id, domain="Refund", expected_canonical_status=CanonicalStatus.SETTLED, expected_amount=100, currency="INR", source_system="ledger")
+    obs = Observation(observation_id=obs_id, provider="razorpay", provider_reference="ref1", observation_type="refund", canonical_status=CanonicalStatus.FAILED, observed_amount=100, currency="INR", evidence_ids=[])
     
     exp_repo.save(exp)
     obs_repo.save(obs)
@@ -242,6 +243,7 @@ def test_crash_convergence(crash_hook, postgres_url, db_session_maker):
     # We pass os.environ for the settings to override event_stale_threshold_seconds to 0
     # for the test, ensuring immediate recovery of the abandoned event.
     os.environ["CONTROL_LOOP__EVENT_STALE_THRESHOLD_SECONDS"] = "0"
+    os.environ.pop("MOCK_VERIFIER_FAIL", None)
     p2 = multiprocessing.Process(target=worker_process, args=("no_crash", postgres_url, exp_id))
     p2.start()
     p2.join(timeout=10)
@@ -254,14 +256,9 @@ def test_crash_convergence(crash_hook, postgres_url, db_session_maker):
     with db_session_maker() as session:
         from src.storage.postgres_substrate import ActiveIncidentIdempotencyRecord
         inc = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=exp_id).first()
-        if crash_hook == "before_retry":
-            # It should have successfully retried and recovered, or it should be in RETRY_PENDING.
-            # But wait, run_loop_once() only runs once. If it's RETRY_PENDING, it won't be processed again instantly.
-            assert inc is not None, "Incident state should exist in RETRY_PENDING"
-        else:
-            # It should have converged successfully and released the incident
-            assert inc is None, "Incident should have been released"
-        
+        from src.storage.postgres_substrate import IncidentState
+        assert inc is not None, "Incident record must exist"
+        assert inc.state == IncidentState.RESOLVED, f"Incident should be resolved, got {inc.state}"
     # Check no duplicate control events
     # We should have exactly 1 DISCREPANCY_DETECTED event and maybe 1 EVENT_RESOLVED event
     with db_session_maker() as session:

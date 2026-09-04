@@ -277,7 +277,7 @@ async def test_llm_isolation_verifier_query_derivation():
     mock_client.get_payment = AsyncMock(return_value=mock_payment)
     mock_client.get_payment_refunds = AsyncMock(return_value=[])
 
-    verifier = DeterministicVerifier(razorpay_client=mock_client)
+    verifier = DeterministicVerifier(razorpay_provider=mock_client)  # type: ignore
 
     now = datetime.now(timezone.utc)
     context = InvestigationContext.create(

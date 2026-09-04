@@ -54,7 +54,7 @@ class HallucinatingInvestigator(Investigator):
 
 class ProviderTimeoutVerifier(DeterministicVerifier):
     def __init__(self):
-        super().__init__(razorpay_client=None) # type: ignore
+        super().__init__(razorpay_provider=None)  # type: ignore
 
     async def verify(self, hypothesis, context):
         return [VerificationResult(
@@ -95,6 +95,7 @@ def create_worker_with_overrides(session_maker, investigator, verifier):
         investigator=investigator,
         validator=validator,
         verifier=verifier,
+        razorpay_provider=None,  # type: ignore
         settings=ControlLoopSettings()
     ), inc_repo, evt_repo
 
@@ -126,7 +127,10 @@ async def test_investigator_unavailable_forces_retry(session_maker):
     
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == IncidentState.RETRY_PENDING
+    # V2 lifecycle: RETRY_PENDING is legacy/unused. schedule_retry() persists INVESTIGATING
+    # with retry metadata (next_retry_at, retry_count). The incident is re-acquired on the
+    # next worker poll cycle; RETRY_PENDING is never written as a live state.
+    assert active.state == IncidentState.INVESTIGATING
     assert active.hypothesis_payload is None
 
 
@@ -143,10 +147,11 @@ async def test_hallucinated_hypothesis_rejected_and_escalated(session_maker):
     
     await worker.poll_and_process()
     
-    # ValidationRejection forces an ESCALATE (which updates the state to ESCALATED, but doesn't delete the row)
+    # V2 lifecycle: OutputValidator rejection calls terminate_incident(ESCALATED_UNKNOWN)
+    # (worker.py line 299). The legacy ESCALATED enum value is not written by V2 production paths.
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == IncidentState.ESCALATED
+    assert active.state == IncidentState.ESCALATED_UNKNOWN
 
 
 @pytest.mark.asyncio
@@ -166,5 +171,6 @@ async def test_provider_verification_fails_forces_retry(session_maker):
     
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == IncidentState.RETRY_PENDING
+    # V2 lifecycle: RETRY_PENDING is legacy/unused. schedule_retry() persists INVESTIGATING.
+    assert active.state == IncidentState.INVESTIGATING
     assert active.hypothesis_payload is not None
