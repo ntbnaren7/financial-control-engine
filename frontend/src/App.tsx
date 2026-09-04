@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, type AuditTrace } from './services/api';
 import { usePolling } from './hooks/usePolling';
-import { ControlRun } from './components/ControlRun';
 import { ExceptionTrace } from './components/ExceptionTrace';
 import { ControlReplay } from './components/ControlReplay';
 import { ControlPipeline } from './components/ControlPipeline';

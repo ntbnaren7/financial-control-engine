@@ -207,7 +207,7 @@ export const ControlPipeline: React.FC<ControlPipelineProps> = ({ trace }) => {
         {/* Vertical line connecting nodes */}
         <div className="absolute left-[11px] top-4 bottom-4 w-px bg-slate-700 z-0"></div>
         
-        {nodes.map((node, index) => {
+        {nodes.map(node => {
           let nodeColor = 'bg-slate-800 border-slate-700 text-slate-600';
           let textColor = 'text-slate-500';
           let stateText = 'NOT REACHED';

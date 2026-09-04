@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api, AuditTrace } from '../services/api';
+import { api, type AuditTrace } from '../services/api';
 
 interface OperatorActionsProps {
   trace: AuditTrace | null;
