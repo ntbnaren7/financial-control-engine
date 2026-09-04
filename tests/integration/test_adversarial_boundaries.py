@@ -64,6 +64,7 @@ def test_1_currency_integrity():
     
     intent = policy.evaluate("exec_1", DiscrepancyReason.AMOUNT_MISMATCH, [obs, merchant_obs], [], type("Context", (), {"expectation": exp, "observations": [obs, merchant_obs]})())
     
+    assert intent is not None
     assert intent.action == "ESCALATE"
     assert "currency mismatch" in intent.reason.lower()
 

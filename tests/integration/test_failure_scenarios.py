@@ -13,6 +13,7 @@ from src.storage.postgres_substrate import (
     PostgresActiveIncidentRepository,
     PostgresControlEventRepository,
     PostgresReconciliationResultRepository,
+    PostgresActuationRepository,
     ControlEventType,
     InvestigationState
 )
@@ -73,6 +74,7 @@ def create_worker_with_overrides(session_maker, investigator, verifier):
     inc_repo = PostgresActiveIncidentRepository(session_maker)
     evt_repo = PostgresControlEventRepository(session_maker)
     recon_repo = PostgresReconciliationResultRepository(session_maker)
+    act_repo = PostgresActuationRepository(session_maker)
     
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
@@ -86,6 +88,7 @@ def create_worker_with_overrides(session_maker, investigator, verifier):
         evidence_repo=ev_repo,
         exp_repo=exp_repo,
         recon_result_repo=recon_repo,
+        actuation_repo=act_repo,
         reconciliation_engine=recon_engine,
         assembler=assembler,
         investigator=investigator,

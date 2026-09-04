@@ -14,6 +14,7 @@ from src.storage.postgres_substrate import (
     PostgresActiveIncidentRepository,
     PostgresControlEventRepository,
     PostgresReconciliationResultRepository,
+    PostgresActuationRepository,
     ControlEventType,
     SubstrateReconciliationResultRecord
 )
@@ -103,6 +104,7 @@ async def main():
         evidence_repo=ev_repo,
         exp_repo=exp_repo,
         recon_result_repo=recon_repo,
+        actuation_repo=act_repo,
         reconciliation_engine=recon_engine,
         assembler=assembler,
         investigator=investigator,

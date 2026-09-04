@@ -15,6 +15,7 @@ from src.storage.postgres_substrate import (
     PostgresExpectationRepository, PostgresObservationRepository,
     PostgresEvidenceRepository, PostgresActiveIncidentRepository,
     PostgresControlEventRepository, PostgresReconciliationResultRepository,
+    PostgresActuationRepository,
     ControlEventType, InvestigationState, ActiveIncidentIdempotencyRecord
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
@@ -26,7 +27,7 @@ from src.engine.worker import V2ControlWorker
 from src.integrations.razorpay.client import RazorpayClient, ProviderNetworkError, ProviderClientError
 from src.integrations.razorpay.normalizer import RazorpayV2Normalizer
 from src.domain.investigation.models import CausalHypothesis, InvestigationDisposition, VerificationIntent, ValidationRejection
-from src.domain.core.models import Expectation, Observation, CorrelationKeys, BusinessStatus, ReconciliationOutcome, DiscrepancyReason
+from src.domain.core.models import Expectation, CanonicalStatus, Observation, CorrelationKeys, BusinessStatus, ReconciliationOutcome, DiscrepancyReason
 
 
 @pytest.fixture(scope="session")
@@ -56,6 +57,7 @@ def base_worker_deps(session_maker):
     inc_repo = PostgresActiveIncidentRepository(session_maker)
     evt_repo = PostgresControlEventRepository(session_maker)
     recon_repo = PostgresReconciliationResultRepository(session_maker)
+    act_repo = PostgresActuationRepository(session_maker)
     
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
@@ -67,6 +69,7 @@ def base_worker_deps(session_maker):
         "inc_repo": inc_repo,
         "evt_repo": evt_repo,
         "recon_repo": recon_repo,
+        "act_repo": act_repo,
         "recon_engine": recon_engine,
         "assembler": assembler,
         "session_maker": session_maker
@@ -105,6 +108,7 @@ def create_worker(deps, worker_id, mock_client, mock_investigator, validator=Non
         evidence_repo=deps["ev_repo"],
         exp_repo=deps["exp_repo"],
         recon_result_repo=deps["recon_repo"],
+        actuation_repo=deps["act_repo"],
         reconciliation_engine=deps["recon_engine"],
         assembler=deps["assembler"],
         investigator=mock_investigator,
@@ -147,7 +151,7 @@ async def test_provider_returns_same_observation(base_worker_deps):
     
     exp = Expectation(
         expectation_id=f"exp_{test_id}",
-        domain="REFUND", expected_state="PROCESSED", expected_amount=2000, currency="INR",
+        domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED, expected_amount=2000, currency="INR",
         source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}", internal_ref=f"rcpt_{test_id}"),
         created_at=now
@@ -156,7 +160,7 @@ async def test_provider_returns_same_observation(base_worker_deps):
     
     obs = Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="CAPTURED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.SETTLED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     )
     deps["obs_repo"].save(obs)
@@ -177,7 +181,7 @@ async def test_provider_returns_same_observation(base_worker_deps):
     
     obs_list = deps["obs_repo"].find_by_correlation_keys(CorrelationKeys(provider_ref=f"pay_{test_id}"))
     assert len(obs_list) == 1, "Duplicate observation was created despite idempotency rules"
-    assert obs_list[0].observed_state == "CAPTURED"
+    assert obs_list[0].canonical_status == CanonicalStatus.SETTLED
 
 
 @pytest.mark.asyncio
@@ -191,14 +195,14 @@ async def test_two_workers_investigate_simultaneously(base_worker_deps):
     test_id = str(uuid.uuid4())
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}", internal_ref=f"rcpt_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -244,14 +248,14 @@ async def test_worker_crashes_after_claiming_lease(base_worker_deps):
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -292,7 +296,7 @@ async def test_worker_crashes_after_claiming_lease(base_worker_deps):
     assert client.get_payment_refunds.call_count == 1
     obs_list = deps["obs_repo"].find_by_correlation_keys(CorrelationKeys(provider_ref=f"pay_{test_id}"))
     assert len(obs_list) == 1, f"Expected 1 observation after crash recovery, got {len(obs_list)}"
-    assert obs_list[0].observed_state == "PROCESSED", f"Expected PROCESSED state after successful retry, got {obs_list[0].observed_state}"
+    assert obs_list[0].canonical_status == CanonicalStatus.SETTLED, f"Expected PROCESSED state after successful retry, got {obs_list[0].canonical_status}"
 
 
 @pytest.mark.asyncio
@@ -306,14 +310,14 @@ async def test_a4_succeeds_but_persistence_fails(base_worker_deps):
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -360,7 +364,7 @@ async def test_a4_succeeds_but_persistence_fails(base_worker_deps):
     # Upsert semantics: the canonical observation for this refund is updated in-place.
     # We expect exactly 1 row, whose state has advanced to PROCESSED from the successful retry.
     assert len(obs_list) == 1
-    assert obs_list[0].observed_state == "PROCESSED"
+    assert obs_list[0].canonical_status == CanonicalStatus.SETTLED
 
 
 @pytest.mark.asyncio
@@ -374,14 +378,14 @@ async def test_a4_succeeds_but_rereconciliation_discrepancy_remains(base_worker_
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="CREATED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.PENDING, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -432,14 +436,14 @@ async def test_llm_produces_hallucinated_ids(base_worker_deps):
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -482,14 +486,14 @@ async def test_provider_returns_contradictory_stale_data(base_worker_deps):
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), 
         observed_at=now,
         ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
@@ -529,14 +533,14 @@ async def test_ollama_unavailable(base_worker_deps):
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -572,14 +576,14 @@ async def test_provider_unavailable_repeatedly(base_worker_deps):
     now = datetime.now(timezone.utc)
     
     exp = Expectation(
-        expectation_id=f"exp_{test_id}", domain="REFUND", expected_state="PROCESSED",
+        expectation_id=f"exp_{test_id}", domain="REFUND", expected_canonical_status=CanonicalStatus.SETTLED,
         expected_amount=2000, currency="INR", source_system="OMS", business_status=BusinessStatus.OPEN,
         correlation_keys=CorrelationKeys(provider="razorpay", provider_ref=f"pay_{test_id}"), created_at=now
     )
     deps["exp_repo"].save(exp)
     deps["obs_repo"].save(Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="FAILED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.FAILED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     ))
     
@@ -632,7 +636,7 @@ async def test_unexpected_execution_independent_path(base_worker_deps):
     
     obs = Observation(
         observation_id=f"obs_{test_id}", provider="razorpay", provider_reference=f"rfnd_{test_id}",
-        observation_type="API_REFUND", observed_state="PROCESSED", observed_amount=2000, currency="INR", evidence_ids=[],
+        observation_type="API_REFUND", canonical_status=CanonicalStatus.SETTLED, observed_amount=2000, currency="INR", evidence_ids=[],
         correlation_keys=CorrelationKeys(provider_ref=f"pay_{test_id}"), observed_at=now, ingestion_event_id=f"evt_{test_id}", provider_version="api_pull"
     )
     deps["obs_repo"].save(obs)

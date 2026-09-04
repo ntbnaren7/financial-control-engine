@@ -11,6 +11,7 @@ from src.storage.postgres_substrate import (
     PostgresEvidenceRepository,
     PostgresExpectationRepository,
     PostgresReconciliationResultRepository,
+    PostgresActuationRepository,
     ControlEventType,
     InvestigationState
 )
@@ -18,7 +19,8 @@ from src.domain.investigation.models import VerificationStatus, ValidationReject
 from src.domain.core.models import RecoveryAction, ReconciliationOutcome
 from src.engine.evidence_assembler import EvidenceAssembler
 from src.engine.policy import V2PolicyEvaluator
-from src.engine.actuator import SimulatedActuator
+from src.engine.actuator import ActuationEngine
+from src.domain.actuation.models import ActuationState
 from src.engine.observer import SimulatedObserver
 from src.investigation.agent import Investigator, InvestigatorError
 from src.investigation.validator import OutputValidator
@@ -43,6 +45,7 @@ class V2ControlWorker:
         evidence_repo: PostgresEvidenceRepository,
         exp_repo: PostgresExpectationRepository,
         recon_result_repo: PostgresReconciliationResultRepository,
+        actuation_repo: PostgresActuationRepository,
         reconciliation_engine: V2ReconciliationEngine,
         assembler: EvidenceAssembler,
         investigator: Investigator,
@@ -58,13 +61,14 @@ class V2ControlWorker:
         self.evidence_repo = evidence_repo
         self.exp_repo = exp_repo
         self.recon_result_repo = recon_result_repo
+        self.actuation_repo = actuation_repo
         self.reconciliation_engine = reconciliation_engine
         self.assembler = assembler
         self.investigator = investigator
         self.validator = validator
         self.verifier = verifier
         self.policy = V2PolicyEvaluator()
-        self.actuator = SimulatedActuator()
+        self.actuator = ActuationEngine(self.incident_repo, self.actuation_repo)
         self.observer = SimulatedObserver()
         self.settings = settings
         self.test_hooks = test_hooks or {}
@@ -386,18 +390,22 @@ class V2ControlWorker:
                 inc_control_loop_outcome("escalated")
                 return
                 
-            # ACT: Simulated Actuator
+            # ACT: ActuationEngine (Phase 9)
             logger.info(f"Executing ACT: {intent.action.value} on {intent.target_id}")
-            from src.domain.core.models import ActuationOutcome
-            actuation_outcome = self.actuator.execute(intent)
+            actuation_state = self.actuator.execute_intent(
+                intent=intent,
+                execution_identity=active_subject,
+                discrepancy_reason=discrepancy_reason,
+                incident_version=int(record.version)  # type: ignore
+            )
             
-            if actuation_outcome == ActuationOutcome.REJECTED:
-                logger.error(f"Actuation REJECTED for {active_subject}. Escalating.")
+            if actuation_state == ActuationState.REJECTED or actuation_state == ActuationState.ESCALATED:
+                logger.error(f"Actuation {actuation_state.value} for {active_subject}. Escalating.")
                 self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
                 inc_control_loop_outcome("escalated")
                 return
                 
-            if actuation_outcome == ActuationOutcome.TIMEOUT_UNKNOWN:
+            if actuation_state == ActuationState.TIMEOUT_UNKNOWN:
                 logger.warning(f"Actuation TIMEOUT_UNKNOWN for {active_subject}. Will observe independently.")
                 
             # OBSERVE AGAIN: Re-read state
@@ -433,14 +441,14 @@ class V2ControlWorker:
                 )
                 inc_control_loop_outcome("resolved")
             else:
-                if actuation_outcome == ActuationOutcome.TIMEOUT_UNKNOWN:
+                if actuation_state == ActuationState.TIMEOUT_UNKNOWN:
                     logger.warning(f"Outcome UNKNOWN and state did not reconcile for {active_subject}. Scheduling retry.")
                     r_count = int(record.retry_count) # type: ignore
                     delay = 30 * (2 ** r_count)
                     self.incident_repo.schedule_retry(active_subject, discrepancy_reason, self.worker_id, delay)
                     inc_control_loop_outcome("retry_pending")
                 else:
-                    logger.error(f"Actuation {actuation_outcome.value} but final state is DISCREPANCY for {active_subject}. Escalating.")
+                    logger.error(f"Actuation {actuation_state.value} but final state is DISCREPANCY for {active_subject}. Escalating.")
                     self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
                     inc_control_loop_outcome("escalated")
             

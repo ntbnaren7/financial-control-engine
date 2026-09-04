@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 import uuid
 from typing import List, Optional
 
-from sqlalchemy import Column, String, Integer, DateTime, JSON, Enum as SQLEnum, UniqueConstraint
+from sqlalchemy import Column, String, Integer, DateTime, JSON, Enum as SQLEnum, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -223,6 +223,7 @@ class InvestigationState(str, PyEnum):
     ACTIVE = "ACTIVE"
     INVESTIGATING = "INVESTIGATING"
     VERIFYING = "VERIFYING"
+    ACTUATION_PENDING = "ACTUATION_PENDING"
     RETRY_PENDING = "RETRY_PENDING"
     ESCALATED = "ESCALATED"
     COMPLETED = "COMPLETED"
@@ -259,8 +260,28 @@ class ActiveIncidentIdempotencyRecord(Base):
     hypothesis_payload = Column(JSON, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     next_retry_at = Column(DateTime(timezone=True), nullable=True)
+    version = Column(Integer, nullable=False, default=1) # OCC for Actuation
     
     created_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class SubstrateActuationRecord(Base):
+    __tablename__ = 'v2_actuation_records'
+
+    record_id = Column(String, primary_key=True)
+    execution_identity = Column(String, nullable=False, index=True)
+    intent_action = Column(String, nullable=False)
+    target_id = Column(String, nullable=False)
+    mutation_parameters_canonical = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=False, unique=True)
+    provider = Column(String, nullable=False)
+    state = Column(String, nullable=False) # ActuationState
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index('idx_actuation_identity_action', 'execution_identity', 'intent_action'),
+    )
 
 
 class PostgresExpectationRepository:
@@ -578,6 +599,23 @@ class PostgresActiveIncidentRepository:
                 return True
             return False
 
+    def update_incident_state_occ(self, active_subject: str, discrepancy_reason: str, current_version: int, new_state: InvestigationState) -> bool:
+        """
+        Uses Optimistic Concurrency Control (OCC) to update the incident state.
+        Returns True if successful, False if the version did not match (concurrent modification).
+        """
+        with self.session_maker() as session:
+            result = session.query(ActiveIncidentIdempotencyRecord).filter(
+                ActiveIncidentIdempotencyRecord.active_subject == active_subject,
+                ActiveIncidentIdempotencyRecord.discrepancy_reason == discrepancy_reason,
+                ActiveIncidentIdempotencyRecord.version == current_version
+            ).update({
+                'state': new_state,
+                'version': current_version + 1
+            })
+            session.commit()
+            return result > 0
+
     def release_incident(self, active_subject: str, discrepancy_reason: str, escalate: bool = False) -> None:
         """Removes or escalates the active incident record when resolved or permanently failed."""
         with self.session_maker() as session:
@@ -784,4 +822,74 @@ class PostgresControlEventRepository:
                 record.status = "FAILED"
                 record.processed_at = datetime.now(timezone.utc)
                 session.commit()
+
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from src.domain.actuation.models import ActuationRecord as ActuationRecordType
+
+class PostgresActuationRepository:
+    def __init__(self, session_maker):
+        self.session_maker = session_maker
+
+    def save(self, record_domain: 'ActuationRecordType') -> None:
+        with self.session_maker() as session:
+            record = session.query(SubstrateActuationRecord).filter_by(record_id=record_domain.record_id).first()
+            if record:
+                record.state = record_domain.state.value
+                record.updated_at = record_domain.updated_at
+            else:
+                record = SubstrateActuationRecord(
+                    record_id=record_domain.record_id,
+                    execution_identity=record_domain.execution_identity,
+                    intent_action=record_domain.intent_action,
+                    target_id=record_domain.target_id,
+                    mutation_parameters_canonical=record_domain.mutation_parameters_canonical,
+                    idempotency_key=record_domain.idempotency_key,
+                    provider=record_domain.provider,
+                    state=record_domain.state.value,
+                    created_at=record_domain.created_at,
+                    updated_at=record_domain.updated_at
+                )
+                session.add(record)
+            session.commit()
+
+    def get_by_idempotency_key(self, key: str) -> Optional['ActuationRecordType']:
+        from src.domain.actuation.models import ActuationRecord, ActuationState
+        with self.session_maker() as session:
+            record = session.query(SubstrateActuationRecord).filter_by(idempotency_key=key).first()
+            if not record:
+                return None
+            return ActuationRecord(
+                execution_identity=record.execution_identity,
+                intent_action=record.intent_action,
+                target_id=record.target_id,
+                mutation_parameters_canonical=record.mutation_parameters_canonical,
+                idempotency_key=record.idempotency_key,
+                provider=record.provider,
+                state=ActuationState(record.state),
+                record_id=record.record_id,
+                created_at=record.created_at,
+                updated_at=record.updated_at
+            )
+
+    def get_by_execution_identity(self, execution_identity: str) -> list['ActuationRecordType']:
+        from src.domain.actuation.models import ActuationRecord, ActuationState
+        with self.session_maker() as session:
+            records = session.query(SubstrateActuationRecord).filter_by(execution_identity=execution_identity).all()
+            return [
+                ActuationRecord(
+                    execution_identity=r.execution_identity,
+                    intent_action=r.intent_action,
+                    target_id=r.target_id,
+                    mutation_parameters_canonical=r.mutation_parameters_canonical,
+                    idempotency_key=r.idempotency_key,
+                    provider=r.provider,
+                    state=ActuationState(r.state),
+                    record_id=r.record_id,
+                    created_at=r.created_at,
+                    updated_at=r.updated_at
+                )
+                for r in records
+            ]
 

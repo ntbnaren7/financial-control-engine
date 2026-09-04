@@ -16,7 +16,8 @@ from src.storage.postgres.models import Base
 from src.storage.postgres_substrate import (
     PostgresExpectationRepository, PostgresObservationRepository,
     PostgresActiveIncidentRepository, PostgresControlEventRepository,
-    PostgresReconciliationResultRepository, PostgresEvidenceRepository,
+    PostgresReconciliationResultRepository,
+    PostgresActuationRepository, PostgresEvidenceRepository,
     ControlEventType
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
@@ -94,7 +95,7 @@ def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
                     provider="razorpay",
                     provider_reference="ref1",
                     observation_type="refund",
-                    observed_state="PROCESSED",
+                    canonical_status="SETTLED",
                     observed_amount=100,
                     currency="INR",
                     evidence_ids=[]
@@ -118,6 +119,7 @@ def worker_process(hook_to_crash: str, db_url: str, active_subject: str):
             evidence_repo=PostgresEvidenceRepository(SessionMaker),
             exp_repo=PostgresExpectationRepository(SessionMaker),
             recon_result_repo=PostgresReconciliationResultRepository(SessionMaker),
+            actuation_repo=PostgresActuationRepository(SessionMaker),
             reconciliation_engine=V2ReconciliationEngine(PostgresExpectationRepository(SessionMaker), PostgresObservationRepository(SessionMaker)),
             assembler=EvidenceAssembler(PostgresExpectationRepository(SessionMaker), PostgresObservationRepository(SessionMaker), PostgresEvidenceRepository(SessionMaker)),
             investigator=MockInvestigator(),
@@ -183,11 +185,12 @@ def test_crash_convergence(crash_hook, postgres_url, db_session_maker):
     exp_repo = PostgresExpectationRepository(db_session_maker)
     obs_repo = PostgresObservationRepository(db_session_maker)
     recon_repo = PostgresReconciliationResultRepository(db_session_maker)
+    act_repo = PostgresActuationRepository(db_session_maker)
     evt_repo = PostgresControlEventRepository(db_session_maker)
     inc_repo = PostgresActiveIncidentRepository(db_session_maker)
     
-    exp = Expectation(expectation_id=exp_id, domain="Refund", expected_state="PROCESSED", expected_amount=100, currency="INR", source_system="ledger")
-    obs = Observation(observation_id=obs_id, provider="razorpay", provider_reference="ref1", observation_type="refund", observed_state="FAILED", observed_amount=100, currency="INR", evidence_ids=[])
+    exp = Expectation(expectation_id=exp_id, domain="Refund", expected_canonical_status="SETTLED", expected_amount=100, currency="INR", source_system="ledger")
+    obs = Observation(observation_id=obs_id, provider="razorpay", provider_reference="ref1", observation_type="refund", canonical_status="FAILED", observed_amount=100, currency="INR", evidence_ids=[])
     
     exp_repo.save(exp)
     obs_repo.save(obs)

@@ -14,6 +14,7 @@ from src.storage.postgres_substrate import (
     PostgresExpectationRepository, PostgresObservationRepository,
     PostgresEvidenceRepository, PostgresActiveIncidentRepository,
     PostgresControlEventRepository, PostgresReconciliationResultRepository,
+    PostgresActuationRepository,
     ControlEventType, InvestigationState
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
@@ -105,6 +106,7 @@ class MockInvestigator(Investigator):
 
 def setup_hero_incident(session_maker):
     recon_repo = PostgresReconciliationResultRepository(session_maker)
+    act_repo = PostgresActuationRepository(session_maker)
     evt_repo = PostgresControlEventRepository(session_maker)
     obs_repo = PostgresObservationRepository(session_maker)
     
@@ -149,6 +151,7 @@ def create_worker(session_maker, verifier):
     inc_repo = PostgresActiveIncidentRepository(session_maker)
     evt_repo = PostgresControlEventRepository(session_maker)
     recon_repo = PostgresReconciliationResultRepository(session_maker)
+    act_repo = PostgresActuationRepository(session_maker)
     
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
@@ -161,6 +164,7 @@ def create_worker(session_maker, verifier):
         evidence_repo=ev_repo,
         exp_repo=exp_repo,
         recon_result_repo=recon_repo,
+        actuation_repo=act_repo,
         reconciliation_engine=recon_engine,
         assembler=assembler,
         investigator=MockInvestigator(),
