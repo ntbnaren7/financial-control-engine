@@ -20,6 +20,12 @@ from src.domain.core.models import (
 from src.storage.postgres.models import Base
 from src.storage.substrate_repo import ObservationRepository
 
+from src.domain.investigation.lifecycle import (
+    IncidentState,
+    IncidentStateMachine,
+    InvalidStateTransitionError
+)
+
 class SubstrateExpectationRecord(Base):
     __tablename__ = 'v2_expectations'
 
@@ -219,14 +225,6 @@ class SubstrateReconciliationResultRecord(Base):
 from src.domain.investigation.models import CausalHypothesis
 from enum import Enum as PyEnum
 
-class InvestigationState(str, PyEnum):
-    ACTIVE = "ACTIVE"
-    INVESTIGATING = "INVESTIGATING"
-    VERIFYING = "VERIFYING"
-    ACTUATION_PENDING = "ACTUATION_PENDING"
-    RETRY_PENDING = "RETRY_PENDING"
-    ESCALATED = "ESCALATED"
-    COMPLETED = "COMPLETED"
 
 class ControlEventType(str, PyEnum):
     OBSERVATION_INGESTED = "OBSERVATION_INGESTED"
@@ -253,7 +251,9 @@ class ActiveIncidentIdempotencyRecord(Base):
     discrepancy_reason = Column(String, primary_key=True)
     incident_id = Column(String, nullable=False, unique=True)
     
-    state = Column(SQLEnum(InvestigationState), nullable=False, default=InvestigationState.ACTIVE)
+    # We continue using 'investigationstate' for the underlying postgres enum type for backwards compatibility,
+    # but we map it to the new IncidentState python Enum.
+    state = Column(SQLEnum(IncidentState, name='investigationstate'), nullable=False, default=IncidentState.DETECTED)
     lease_owner = Column(String, nullable=True)
     lease_expires_at = Column(DateTime(timezone=True), nullable=True)
     
@@ -337,6 +337,34 @@ class PostgresExpectationRepository:
                     base_query = base_query.filter(cast(SubstrateExpectationRecord.correlation_keys['domain'], String) == f'"{keys.domain}"')
 
             records = base_query.all()
+            return [r.to_domain() for r in records]
+
+    def find_open_by_correlation_keys(self, keys: "CorrelationKeys") -> List[Expectation]:
+        """Return only OPEN expectations matching the given correlation keys.
+
+        Used by the OBSERVATION_INGESTED handler to scope reconciliation to
+        a single observation's matched expectations, avoiding O(N²) fan-out.
+        """
+        from sqlalchemy import or_, func
+        with self.session_maker() as session:
+            query = session.query(SubstrateExpectationRecord).filter_by(
+                business_status=BusinessStatus.OPEN
+            )
+            filters = []
+            is_sqlite = session.bind.dialect.name == "sqlite"
+            if keys.internal_ref:
+                if is_sqlite:
+                    filters.append(func.json_extract(SubstrateExpectationRecord.correlation_keys, "$.internal_ref") == keys.internal_ref)
+                else:
+                    filters.append(SubstrateExpectationRecord.correlation_keys["internal_ref"].as_string() == keys.internal_ref)
+            if keys.provider_ref:
+                if is_sqlite:
+                    filters.append(func.json_extract(SubstrateExpectationRecord.correlation_keys, "$.provider_ref") == keys.provider_ref)
+                else:
+                    filters.append(SubstrateExpectationRecord.correlation_keys["provider_ref"].as_string() == keys.provider_ref)
+            if not filters:
+                return []
+            records = query.filter(or_(*filters)).all()
             return [r.to_domain() for r in records]
 
 
@@ -488,8 +516,18 @@ class PostgresActiveIncidentRepository:
     def count_active(self) -> int:
         with self.session_maker() as session:
             return session.query(ActiveIncidentIdempotencyRecord).filter(
-                ActiveIncidentIdempotencyRecord.state != InvestigationState.COMPLETED,
-                ActiveIncidentIdempotencyRecord.state != InvestigationState.ESCALATED
+                ActiveIncidentIdempotencyRecord.state != IncidentState.RESOLVED,
+                ActiveIncidentIdempotencyRecord.state != IncidentState.COMPLETED, # Legacy
+                ActiveIncidentIdempotencyRecord.state != IncidentState.ESCALATED, # Legacy
+                ~ActiveIncidentIdempotencyRecord.state.in_([
+                    IncidentState.ESCALATED_PAUSED_BY_KILL_SWITCH,
+                    IncidentState.ESCALATED_BUDGET_EXHAUSTED,
+                    IncidentState.ESCALATED_POLICY_BLOCKED,
+                    IncidentState.ESCALATED_MISSING_EVIDENCE,
+                    IncidentState.ESCALATED_MUTATION_FAILED,
+                    IncidentState.ESCALATED_CONVERGENCE_FAILED,
+                    IncidentState.ESCALATED_UNKNOWN
+                ])
             ).count()
             
     def get_active_incident(self, active_subject: str, discrepancy_reason: str) -> Optional[ActiveIncidentIdempotencyRecord]:
@@ -510,7 +548,7 @@ class PostgresActiveIncidentRepository:
                     active_subject=active_subject,
                     discrepancy_reason=discrepancy_reason,
                     incident_id=incident_id,
-                    state=InvestigationState.ACTIVE,
+                    state=IncidentState.DETECTED,
                     created_at=datetime.now(timezone.utc)
                 )
                 session.add(record)
@@ -539,23 +577,31 @@ class PostgresActiveIncidentRepository:
             
             if not record:
                 return None
+                         
+            if record.state in [IncidentState.RESOLVED, IncidentState.COMPLETED] or record.state.value.startswith("ESCALATED"):
+                return None # Terminal states cannot be leased autonomously
+
+            # Transition state if necessary
+            current_state = record.state
+            new_state = current_state
+            
+            if current_state in [IncidentState.DETECTED, IncidentState.ACTIVE]:
+                new_state = IncidentState.INVESTIGATING
+            elif current_state == IncidentState.RETRY_PENDING:
+                new_state = IncidentState.INVESTIGATING
+            elif current_state == IncidentState.ACTUATION_PENDING:
+                new_state = IncidentState.ACTUATING
                 
-            if record.state in [InvestigationState.ESCALATED, InvestigationState.COMPLETED]:
-                return None
+            if current_state != new_state:
+                IncidentStateMachine.assert_valid_transition(current_state, new_state)
+                record.state = new_state
                 
             # Can acquire if no lease, lease expired, or owner matches
             if record.lease_expires_at is None or record.lease_expires_at < now or record.lease_owner == worker_id:
                 record.lease_owner = worker_id
                 record.lease_expires_at = expires_at
                 
-                # Advance state if picking up fresh or from retry
-                if record.state in [InvestigationState.ACTIVE, InvestigationState.RETRY_PENDING]:
-                    # If we already have a hypothesis, go straight to VERIFYING
-                    if record.hypothesis_payload:
-                        record.state = InvestigationState.VERIFYING
-                    else:
-                        record.state = InvestigationState.INVESTIGATING
-                        
+                # State advance is handled above by the state machine block.
                 session.commit()
                 session.expunge(record)
                 return record
@@ -572,7 +618,8 @@ class PostgresActiveIncidentRepository:
             
             if record:
                 record.hypothesis_payload = hypothesis.model_dump(mode="json")
-                record.state = InvestigationState.VERIFYING
+                IncidentStateMachine.assert_valid_transition(record.state, IncidentState.VERIFYING)
+                record.state = IncidentState.VERIFYING
                 session.commit()
                 return True
             return False
@@ -590,7 +637,11 @@ class PostgresActiveIncidentRepository:
             ).first()
             
             if record:
-                record.state = InvestigationState.RETRY_PENDING
+                # Actually we removed RETRY_PENDING in favor of INVESTIGATING, but we kept it for compatibility in Python enum.
+                # However we decided to just use INVESTIGATING and let next_retry_at handle it.
+                # Wait, the IncidentStateMachine valid transitions allows VERIFYING -> INVESTIGATING.
+                IncidentStateMachine.assert_valid_transition(record.state, IncidentState.INVESTIGATING)
+                record.state = IncidentState.INVESTIGATING
                 record.retry_count += 1
                 record.next_retry_at = now + timedelta(seconds=retry_delay_seconds)
                 record.lease_owner = None
@@ -599,7 +650,7 @@ class PostgresActiveIncidentRepository:
                 return True
             return False
 
-    def update_incident_state_occ(self, active_subject: str, discrepancy_reason: str, current_version: int, new_state: InvestigationState) -> bool:
+    def update_incident_state_occ(self, active_subject: str, discrepancy_reason: str, current_version: int, new_state: IncidentState) -> bool:
         """
         Uses Optimistic Concurrency Control (OCC) to update the incident state.
         Returns True if successful, False if the version did not match (concurrent modification).
@@ -616,31 +667,22 @@ class PostgresActiveIncidentRepository:
             session.commit()
             return result > 0
 
-    def release_incident(self, active_subject: str, discrepancy_reason: str, escalate: bool = False) -> None:
-        """Removes or escalates the active incident record when resolved or permanently failed."""
+    def terminate_incident(self, active_subject: str, discrepancy_reason: str, terminal_state: IncidentState) -> None:
+        """Transitions the incident to a terminal state (RESOLVED or ESCALATED_*)."""
         with self.session_maker() as session:
-            if escalate:
-                record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
-                    active_subject=active_subject,
-                    discrepancy_reason=discrepancy_reason
-                ).first()
-                if record:
-                    record.state = InvestigationState.ESCALATED
-                    record.lease_owner = None
-                    record.lease_expires_at = None
-                    session.commit()
-            else:
-                session.query(ActiveIncidentIdempotencyRecord).filter_by(
-                    active_subject=active_subject,
-                    discrepancy_reason=discrepancy_reason
-                ).delete()
+            record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason
+            ).first()
+            if record:
+                IncidentStateMachine.assert_valid_transition(record.state, terminal_state)
+                record.state = terminal_state
+                record.lease_owner = None
+                record.lease_expires_at = None
                 session.commit()
 
-    def commit_verification_success(self, active_subject: str, discrepancy_reason: str, new_evidence: List["Evidence"], new_observations: List["Observation"], escalate: bool = False) -> None:
-        """
-        Atomically persists new evidence, upserts new observations, releases the incident,
-        and publishes the OBSERVATION_INGESTED event to trigger re-reconciliation.
-        """
+    def commit_verification_success(self, active_subject: str, discrepancy_reason: str, new_evidence: List["Evidence"], new_observations: List["Observation"]) -> None:
+        """Saves new evidence and observations, then transitions incident to ACTIONABLE atomically."""
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from dataclasses import asdict
         import uuid
@@ -663,6 +705,7 @@ class PostgresActiveIncidentRepository:
             for obs in new_observations:
                 c_keys = asdict(obs.correlation_keys) if obs.correlation_keys else {}
                 obs_status_str = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
+                
                 obs_values = dict(
                     observation_id=obs.observation_id,
                     provider=obs.provider,
@@ -695,23 +738,129 @@ class PostgresActiveIncidentRepository:
                     )
                 )
                 session.execute(obs_stmt)
-                
-            # 3. Release or Escalate Incident
-            if escalate:
-                record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
-                    active_subject=active_subject,
-                    discrepancy_reason=discrepancy_reason
-                ).first()
-                if record:
-                    record.state = InvestigationState.ESCALATED
-                    record.lease_owner = None
-                    record.lease_expires_at = None
-            else:
-                session.query(ActiveIncidentIdempotencyRecord).filter_by(
-                    active_subject=active_subject,
-                    discrepancy_reason=discrepancy_reason
-                ).delete()
+
+            # 3. Transition to ACTIONABLE
+            record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason
+            ).first()
+            if record:
+                # If we are already beyond ACTIONABLE (e.g. somehow racing), don't go backwards
+                if record.state in [IncidentState.DETECTED, IncidentState.INVESTIGATING, IncidentState.VERIFYING]:
+                    IncidentStateMachine.assert_valid_transition(record.state, IncidentState.ACTIONABLE)
+                    record.state = IncidentState.ACTIONABLE
+                    # Keep lease since worker will proceed to policy immediately
             
+            session.commit()
+
+
+    def transition_to_actuating(self, active_subject: str, discrepancy_reason: str) -> None:
+        """Transitions the incident from ACTUATION_PENDING → ACTUATING."""
+        with self.session_maker() as session:
+            record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason
+            ).first()
+            if record:
+                IncidentStateMachine.assert_valid_transition(record.state, IncidentState.ACTUATING)
+                record.state = IncidentState.ACTUATING
+                session.commit()
+
+    def transition_to_reobserving(self, active_subject: str, discrepancy_reason: str) -> None:
+        """Transitions the incident from ACTUATING → REOBSERVING.
+        
+        Called immediately after the external mutation is dispatched (or timed out),
+        before the fresh observation fetch. This distinguishes:
+            'mutation was sent'  from  'external state has converged'.
+        A crash between REOBSERVING entry and RESOLVED is recoverable
+        because the incident will be re-leased and the observation re-attempted.
+        """
+        with self.session_maker() as session:
+            record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason
+            ).first()
+            if record:
+                IncidentStateMachine.assert_valid_transition(record.state, IncidentState.REOBSERVING)
+                record.state = IncidentState.REOBSERVING
+                session.commit()
+
+    def persist_reobservation_and_resolve(
+        self,
+        active_subject: str,
+        discrepancy_reason: str,
+        new_evidence: List["Evidence"],
+        new_observations: List["Observation"],
+    ) -> None:
+        """Atomically persists post-actuation observations and resolves the incident.
+        
+        This is the ONLY path from REOBSERVING → RESOLVED.
+        Distinct from commit_verification_success (which handles the pre-actuation
+        investigation path and lands in ACTIONABLE).
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from dataclasses import asdict
+        import uuid
+
+        with self.session_maker() as session:
+            for ev in new_evidence:
+                ev_stmt = pg_insert(SubstrateEvidenceRecord).values(
+                    evidence_id=ev.evidence_id,
+                    source=ev.source,
+                    source_reference=ev.source_reference,
+                    payload_hash=ev.payload_hash,
+                    raw_payload_ref=ev.raw_payload_ref,
+                    observed_at=ev.observed_at,
+                    ingested_at=ev.ingested_at
+                ).on_conflict_do_nothing(index_elements=['evidence_id'])
+                session.execute(ev_stmt)
+
+            for obs in new_observations:
+                c_keys = asdict(obs.correlation_keys) if obs.correlation_keys else {}
+                obs_status_str = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
+                obs_values = dict(
+                    observation_id=obs.observation_id,
+                    provider=obs.provider,
+                    provider_reference=obs.provider_reference,
+                    observation_type=obs.observation_type,
+                    observed_state=obs_status_str,
+                    observed_amount=obs.observed_amount,
+                    currency=obs.currency,
+                    evidence_ids=obs.evidence_ids,
+                    correlation_keys=c_keys,
+                    provider_event_id=obs.provider_event_id,
+                    provider_version=obs.provider_version,
+                    observed_at=obs.observed_at,
+                    ingestion_event_id=obs.ingestion_event_id,
+                )
+                obs_stmt = (
+                    pg_insert(SubstrateObservationRecord)
+                    .values(**obs_values)
+                    .on_conflict_do_update(
+                        constraint="uq_obs_instance_version",
+                        set_={
+                            "observed_state": obs_status_str,
+                            "evidence_ids": obs.evidence_ids,
+                            "observed_at": obs.observed_at,
+                            "ingestion_event_id": obs.ingestion_event_id,
+                        },
+                        where=(SubstrateObservationRecord.observed_at < obs.observed_at),
+                    )
+                )
+                session.execute(obs_stmt)
+
+            record = session.query(ActiveIncidentIdempotencyRecord).filter_by(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason
+            ).first()
+            if record:
+                IncidentStateMachine.assert_valid_transition(record.state, IncidentState.RESOLVED)
+                record.state = IncidentState.RESOLVED
+                record.lease_owner = None
+                record.lease_expires_at = None
+
+            session.commit()
+
             # 4. Publish Event
             if new_observations:
                 event_id = str(uuid.uuid4())

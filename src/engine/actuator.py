@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from src.domain.core.models import RecoveryIntent, RecoveryAction, ActuationOutcome
 from src.domain.actuation.models import ActuationRecord, ActuationState
 from src.engine.actuation_key import generate_canonical_payload, generate_idempotency_key
-from src.storage.postgres_substrate import PostgresActiveIncidentRepository, PostgresActuationRepository, InvestigationState
+from src.storage.postgres_substrate import PostgresActiveIncidentRepository, PostgresActuationRepository
+from src.domain.investigation.lifecycle import IncidentState
 from src.engine.external_simulator import simulator
 
 logger = structlog.get_logger()
@@ -175,7 +176,7 @@ class ActuationEngine:
             active_subject=execution_identity,
             discrepancy_reason=discrepancy_reason,
             current_version=incident_version,
-            new_state=InvestigationState.ACTUATION_PENDING,
+            new_state=IncidentState.ACTUATION_PENDING,
         )
 
         if not claimed:
@@ -201,6 +202,45 @@ class ActuationEngine:
         # Tx2: Record outcome by saving an updated copy of the record.
         # We update the mutable fields on the existing object so the record_id
         # (and therefore idempotency_key) remain stable across both transactions.
+        record.state = outcome
+        record.updated_at = datetime.now(timezone.utc)
+        self.actuation_repo.save(record)
+
+        return outcome
+
+    def execute_claimed_intent(
+        self,
+        intent: RecoveryIntent,
+        record: ActuationRecord,
+    ) -> ActuationState:
+        """
+        Executes the network call and outcome persistence for an intent that has
+        ALREADY been claimed by the Governance Gate (Tx1 complete).
+        """
+        if intent.action not in self.providers:
+            logger.error("ActuationEngine: Unsupported action", action=intent.action)
+            return ActuationState.REJECTED
+            
+        provider = self.providers[intent.action]
+        
+        # Build payload (deterministic)
+        payload: Dict[str, Any] = {}
+        if intent.action == RecoveryAction.REFUND_PAYMENT:
+            if intent.amount is not None:
+                payload["amount"] = intent.amount
+            if intent.currency is not None:
+                payload["currency"] = intent.currency
+        elif intent.action == RecoveryAction.REPAIR_MERCHANT_STATE:
+            payload["expected_provider_state"] = intent.expected_provider_state
+
+        # Network call (outside any transaction)
+        try:
+            outcome = provider.execute(record.target_id, record.idempotency_key, payload)
+        except Exception as exc:
+            logger.error("ActuationEngine: Network error during execution", error=str(exc))
+            outcome = ActuationState.TIMEOUT_UNKNOWN
+
+        # Tx2: Record outcome
         record.state = outcome
         record.updated_at = datetime.now(timezone.utc)
         self.actuation_repo.save(record)

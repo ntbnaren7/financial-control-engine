@@ -62,16 +62,25 @@ def evaluate_expectation_centric(
         
     latest_obs = executions[0].get_latest_observation()
     
-    # 4. State Mismatch
-    if latest_obs.canonical_status != expectation.expected_canonical_status:
-        return ReconciliationResult(
-            expectation_id=expectation.expectation_id,
-            observation_ids=observation_ids,
-            outcome=ReconciliationOutcome.DISCREPANCY,
-            reconciliation_reason=f"Expected {expectation.expected_canonical_status.value}, observed {latest_obs.canonical_status.value}",
-            discrepancy_reason=DiscrepancyReason.STATE_MISMATCH
-        )
-        
+    # 4. State Mismatch across all observed providers
+    # Group by provider to get the latest observation per provider
+    provider_latest = {}
+    for obs in executions[0].observations:
+        provider = obs.provider.lower()
+        if provider not in provider_latest or obs.observed_at > provider_latest[provider].observed_at:
+            provider_latest[provider] = obs
+
+    for provider, obs in provider_latest.items():
+        if obs.canonical_status != expectation.expected_canonical_status:
+            return ReconciliationResult(
+                expectation_id=expectation.expectation_id,
+                observation_ids=observation_ids,
+                outcome=ReconciliationOutcome.DISCREPANCY,
+                reconciliation_reason=f"Provider {provider} expected {expectation.expected_canonical_status.value}, observed {obs.canonical_status.value}",
+                discrepancy_reason=DiscrepancyReason.STATE_MISMATCH
+            )
+            
+    latest_obs = executions[0].get_latest_observation()
     # 4. Evaluate amount and currency
     if latest_obs.currency != expectation.currency:
         return ReconciliationResult(

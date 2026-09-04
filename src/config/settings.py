@@ -20,8 +20,7 @@ class LLMSettings(BaseModel):
     timeout_seconds: float = Field(default=120.0)
 
 class DatabaseSettings(BaseModel):
-    """Infrastructure configuration for PostgreSQL database."""
-    # This shouldn't default to a prod connection, just local
+    """Infrastructure configuration for the FCE database (PostgreSQL in production)."""
     url: SecretStr = Field(default=SecretStr("postgresql+psycopg://postgres:postgres@localhost:5432/fce"))
 
 class ObservabilitySettings(BaseModel):
@@ -51,13 +50,18 @@ class ControlLoopSettings(BaseModel):
 # ---------------------------------------------------------------------------
 
 class FCESettings(BaseSettings):
-    model_config = SettingsConfigDict(env_nested_delimiter="__")
-    
-    environment: str = Field(default="development")
-    
-    razorpay: RazorpaySettings
+    model_config = SettingsConfigDict(env_nested_delimiter="__", extra="ignore")
+
+    environment: str = Field(default="development", alias="ENVIRONMENT")
+
+    razorpay: RazorpaySettings = Field(default_factory=lambda: RazorpaySettings(
+        key_id=os.getenv("RAZORPAY_KEY_ID", ""),
+        key_secret=os.getenv("RAZORPAY_KEY_SECRET", "")
+    ))
     llm: LLMSettings = Field(default_factory=lambda: LLMSettings())
-    database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())
+    database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings(
+        url=os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/fce")
+    ))
     observability: ObservabilitySettings = Field(default_factory=lambda: ObservabilitySettings())
     control_loop: ControlLoopSettings = Field(default_factory=lambda: ControlLoopSettings())
 
@@ -76,3 +80,4 @@ class FCESettings(BaseSettings):
         # Pydantic SettingsConfigDict only applies to the class definition time
         # We can dynamically set the config dict kwargs when instantiating via _env_file
         return cls(_env_file=env_file, _env_nested_delimiter="__")
+

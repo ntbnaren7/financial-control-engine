@@ -1,5 +1,6 @@
 import pytest
 import httpx
+from src.domain.investigation.lifecycle import IncidentState
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
@@ -15,7 +16,7 @@ from src.storage.postgres_substrate import (
     PostgresControlEventRepository,
     PostgresReconciliationResultRepository,
     PostgresActuationRepository,
-    InvestigationState
+    IncidentState
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
 from src.engine.evidence_assembler import EvidenceAssembler
@@ -110,4 +111,4 @@ async def test_end_to_end_with_real_ollama(session_maker):
     
     # Assert it either cleanly resolved (None) or correctly escalated
     if active is not None:
-        assert active.state == InvestigationState.ESCALATED
+        assert active.state == IncidentState.ESCALATED

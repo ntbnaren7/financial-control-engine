@@ -16,8 +16,9 @@ from src.storage.postgres_substrate import (
     PostgresEvidenceRepository, PostgresActiveIncidentRepository,
     PostgresControlEventRepository, PostgresReconciliationResultRepository,
     PostgresActuationRepository,
-    ControlEventType, InvestigationState, ActiveIncidentIdempotencyRecord
+    ControlEventType, ActiveIncidentIdempotencyRecord
 )
+from src.domain.investigation.lifecycle import IncidentState
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
 from src.engine.evidence_assembler import EvidenceAssembler
 from src.investigation.agent import Investigator
@@ -472,7 +473,7 @@ async def test_llm_produces_hallucinated_ids(base_worker_deps):
     assert client.get_payment_refunds.call_count == 0
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()
-        assert record.state == InvestigationState.ESCALATED
+        assert record.state == IncidentState.ESCALATED
 
 
 @pytest.mark.asyncio
@@ -561,7 +562,7 @@ async def test_ollama_unavailable(base_worker_deps):
     
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()
-        assert record.state == InvestigationState.RETRY_PENDING
+        assert record.state == IncidentState.RETRY_PENDING
         assert record.retry_count == 1
 
 
@@ -620,7 +621,7 @@ async def test_provider_unavailable_repeatedly(base_worker_deps):
         
     with deps["session_maker"]() as session:
         record = session.query(ActiveIncidentIdempotencyRecord).filter_by(active_subject=f"exp_{test_id}").first()
-        assert record.state == InvestigationState.ESCALATED
+        assert record.state == IncidentState.ESCALATED
         assert record.retry_count == 5
 
 

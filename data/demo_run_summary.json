@@ -1,0 +1,16 @@
+{
+  "total_records": 100,
+  "match_rate_pct": 8.0,
+  "matches": 8,
+  "resolved": 0,
+  "escalated": 0,
+  "state_counts": {
+    "ACTIONABLE": 92
+  },
+  "recon_counts": {
+    "DISCREPANCY": 92,
+    "MATCH": 8
+  },
+  "run_at": "2026-09-04T06:35:49.828222+00:00",
+  "elapsed_s": 0.85
+}

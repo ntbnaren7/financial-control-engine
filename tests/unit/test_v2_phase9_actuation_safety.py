@@ -1,5 +1,6 @@
 """
 Phase 9 Actuation Safety Invariant Tests
+from src.domain.investigation.lifecycle import IncidentState
 =========================================
 Proves the correctness and crash-safety of the ActuationEngine before it is
 wired into the control worker. This suite is the real Phase 9 safety gate.
@@ -36,7 +37,7 @@ from src.domain.actuation.models import ActuationRecord, ActuationState
 from src.domain.core.models import RecoveryAction, RecoveryIntent
 from src.engine.actuation_key import generate_canonical_payload, generate_idempotency_key
 from src.engine.external_simulator import SimulatedExternalSystem
-from src.storage.postgres_substrate import InvestigationState
+from src.storage.postgres_substrate import IncidentState
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,12 +1,13 @@
 import hashlib
 from datetime import datetime, timezone
+from src.domain.investigation.lifecycle import IncidentState
 import pytest
 from uuid import uuid4
 from decimal import Decimal
 
 from src.reconciliation.models import ReconciliationResult, DiscrepancyType, ExpectedRefund
 from src.state.models import KnowledgeState
-from src.domain.incidents.models import Incident, IncidentState
+from src.domain.incidents.models import Incident
 from src.domain.incidents.projection import project_incident
 
 def test_project_incident_match_returns_none():

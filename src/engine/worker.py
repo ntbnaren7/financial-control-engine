@@ -3,6 +3,20 @@ import uuid
 import structlog
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime, timezone
+from typing import Any
+
+
+def _as_utc(dt: Any) -> datetime:
+    """Coerce a naive (or SQLAlchemy-typed) datetime to UTC-aware.
+
+    SQLite stores timestamps without tzinfo and SQLAlchemy exposes the
+    column as Column[datetime], which the type checker flags. At runtime
+    the value is always a plain datetime; we just ensure it carries tzinfo.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 
 from src.storage.postgres_substrate import (
     PostgresControlEventRepository,
@@ -13,8 +27,9 @@ from src.storage.postgres_substrate import (
     PostgresReconciliationResultRepository,
     PostgresActuationRepository,
     ControlEventType,
-    InvestigationState
+
 )
+from src.domain.investigation.lifecycle import IncidentState
 from src.domain.investigation.models import VerificationStatus, ValidationRejection, CausalHypothesis
 from src.domain.core.models import RecoveryAction, ReconciliationOutcome
 from src.engine.evidence_assembler import EvidenceAssembler
@@ -69,6 +84,11 @@ class V2ControlWorker:
         self.verifier = verifier
         self.policy = V2PolicyEvaluator()
         self.actuator = ActuationEngine(self.incident_repo, self.actuation_repo)
+        
+        # Phase 10 Governance Gate (Optional for legacy tests)
+        from src.engine.governance_gate import GovernanceGate
+        self.governance_gate = GovernanceGate(self.incident_repo.session_maker) if hasattr(self.incident_repo, 'session_maker') else None
+        
         self.observer = SimulatedObserver()
         self.settings = settings
         self.test_hooks = test_hooks or {}
@@ -123,7 +143,7 @@ class V2ControlWorker:
                 )
                 logger.info("Worker processing event")
                 if event.event_type == ControlEventType.OBSERVATION_INGESTED:
-                    await self._handle_observation_ingested()
+                    await self._handle_observation_ingested(event.payload)
                 elif event.event_type == ControlEventType.DISCREPANCY_DETECTED:
                     await self._handle_discrepancy(event.payload)
                 
@@ -139,9 +159,36 @@ class V2ControlWorker:
                 inc_event_processed(event.event_type.value)
                 observe_event_processing_latency(event.event_type.value, elapsed)
 
-    async def _handle_observation_ingested(self):
-        # A1: Detect
-        results = self.reconciliation_engine.reconcile_batch()
+    async def _handle_observation_ingested(self, payload: Dict[str, Any]):
+        """
+        Targeted reconciliation: reconcile only the expectations that match the
+        newly-ingested observation, not the entire open batch.
+        This prevents O(N²) event fan-out when seeding or receiving bulk data.
+        """
+        observation_id = payload.get("observation_id")
+        if not observation_id:
+            # Fallback: full batch reconcile (legacy callers without payload)
+            results = self.reconciliation_engine.reconcile_batch()
+        else:
+            obs = self.observation_repo.get(observation_id)
+            if not obs:
+                return
+            # Find expectations whose correlation_keys match this observation
+            matching_exps = self.exp_repo.find_open_by_correlation_keys(obs.correlation_keys)
+            if not matching_exps:
+                # Observation-centric path: no expectation found → unexpected execution
+                from src.engine.reconciliation_controls import evaluate_observation_centric
+                obs_result = evaluate_observation_centric(obs, [])
+                results = [obs_result] if obs_result else []
+            else:
+                from src.engine.reconciliation_controls import evaluate_expectation_centric
+                results = []
+                for exp in matching_exps:
+                    candidate_obs = self.observation_repo.find_by_correlation_keys(exp.correlation_keys)
+                    res = evaluate_expectation_centric(exp, candidate_obs)
+                    if res:
+                        results.append(res)
+
         for res in results:
             self.recon_result_repo.save(res)
             if res.outcome == ReconciliationOutcome.DISCREPANCY:
@@ -189,14 +236,13 @@ class V2ControlWorker:
 
         # 3. Stale-event guard: re-evaluate current state before committing to investigation.
         # If a concurrent worker already resolved this discrepancy (e.g., the observation
-        # now matches the expectation), this event is stale and should be dropped.
+        # now matches the expectation), drop this event and resolve the incident.
         if recon_result.expectation_id:
-            from src.engine.reconciliation_controls import evaluate_expectation_centric
-            current_obs = self.observation_repo.find_by_correlation_keys(recon_result.expectation.correlation_keys) if hasattr(recon_result, "expectation") else []
-            if not current_obs and recon_result.expectation_id:
-                exp = self.exp_repo.get(recon_result.expectation_id)
-                if exp:
-                    current_obs = self.observation_repo.find_by_correlation_keys(exp.correlation_keys)
+            exp = self.exp_repo.get(recon_result.expectation_id)
+            if exp:
+                current_obs = self.observation_repo.find_by_correlation_keys(exp.correlation_keys)
+                if current_obs:
+                    from src.engine.reconciliation_controls import evaluate_expectation_centric
                     fresh_result = evaluate_expectation_centric(exp, current_obs)
                     if fresh_result.outcome == ReconciliationOutcome.MATCH:
                         from src.observability.metrics import (
@@ -205,14 +251,13 @@ class V2ControlWorker:
                             observe_incident_lifetime
                         )
                         inc_stale_event_dropped()
-                        elapsed = (datetime.now(timezone.utc) - recon_result.created_at).total_seconds()
+                        elapsed = (datetime.now(timezone.utc) - _as_utc(recon_result.created_at)).total_seconds()
                         observe_cycle_resolution_latency(elapsed)
-                        observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
-
-                        logger.info(f"Stale DISCREPANCY event for {active_subject} — current state is MATCH. Releasing incident.")
-                        self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=False)
+                        observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
+                        logger.info(f"Stale DISCREPANCY event for {active_subject} — current state is MATCH. Resolving incident.")
+                        self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.RESOLVED)
                         return
-            
+
         import time
         from src.observability.metrics import (
             observe_investigation_latency,
@@ -230,7 +275,7 @@ class V2ControlWorker:
             
             # A3: AI Investigation (Skip if already have a validated hypothesis from a previous retry)
             self._trigger_hook("before_a3")
-            if record.state == InvestigationState.VERIFYING and record.hypothesis_payload:
+            if record.state == IncidentState.VERIFYING and record.hypothesis_payload:
                 logger.info(f"Reusing existing hypothesis for {active_subject}")
                 hypothesis = CausalHypothesis.model_validate(record.hypothesis_payload)
             else:
@@ -245,8 +290,8 @@ class V2ControlWorker:
                 validation_result = self.validator.validate(hypothesis.model_dump(mode="json"), formatted_input)
                 if isinstance(validation_result, ValidationRejection):
                     logger.warning(f"Hypothesis rejected: {validation_result.reason}")
-                    self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
-                    observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
+                    self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_UNKNOWN)
+                    observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
                     inc_control_loop_outcome("escalated")
                     return
                 
@@ -271,8 +316,8 @@ class V2ControlWorker:
                     r_count = int(record.retry_count) # type: ignore
                     if r_count >= 5:
                         logger.error(f"Exhausted retries for {active_subject}. Escalating.")
-                        self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
-                        observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
+                        self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_MISSING_EVIDENCE)
+                        observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
                         inc_control_loop_outcome("escalated")
                     else:
                         delay = 30 * (2 ** r_count)
@@ -283,8 +328,8 @@ class V2ControlWorker:
 
                 elif v_res.status == VerificationStatus.REJECTED:
                     logger.error(f"Verification REJECTED for {active_subject}: {v_res.failure_reason}. Escalating.")
-                    self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
-                    observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
+                    self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_MISSING_EVIDENCE)
+                    observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
                     inc_control_loop_outcome("escalated")
                     return
                     
@@ -309,6 +354,7 @@ class V2ControlWorker:
                     new_evidence=all_new_evidence,
                     new_observations=all_new_observations
                 )
+                self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.RESOLVED)
                 from src.observability.metrics import inc_control_loop_outcome
                 inc_control_loop_outcome("resolved")
                 return
@@ -365,6 +411,7 @@ class V2ControlWorker:
                             new_evidence=all_new_evidence,
                             new_observations=all_new_observations
                         )
+                        self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.RESOLVED)
                         from src.observability.metrics import inc_control_loop_outcome
                         inc_control_loop_outcome("resolved")
                         return
@@ -383,32 +430,77 @@ class V2ControlWorker:
                     active_subject=active_subject,
                     discrepancy_reason=discrepancy_reason,
                     new_evidence=all_new_evidence,
-                    new_observations=all_new_observations,
-                    escalate=True
+                    new_observations=all_new_observations
                 )
+                self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_POLICY_BLOCKED)
                 from src.observability.metrics import inc_control_loop_outcome
                 inc_control_loop_outcome("escalated")
                 return
                 
-            # ACT: ActuationEngine (Phase 9)
-            logger.info(f"Executing ACT: {intent.action.value} on {intent.target_id}")
-            actuation_state = self.actuator.execute_intent(
-                intent=intent,
-                execution_identity=active_subject,
-                discrepancy_reason=discrepancy_reason,
-                incident_version=int(record.version)  # type: ignore
-            )
+            # ACT: Governance Gate (Phase 10)
+            logger.info(f"Executing ACT: {intent.action.value} on {intent.target_id} via Governance Gate")
+            
+            if self.governance_gate:
+                budget_id = f"budget_{intent.action.value.lower()}"
+                budget_amount = intent.amount or 0
+                
+                decision = self.governance_gate.evaluate_and_claim(
+                    intent=intent,
+                    execution_identity=active_subject,
+                    discrepancy_reason=discrepancy_reason,
+                    incident_version=int(record.version), # type: ignore
+                    budget_id=budget_id,
+                    budget_amount=budget_amount
+                )
+                
+                from src.domain.governance.gate import GovernanceGateDecision
+                if decision.status != GovernanceGateDecision.ALLOWED:
+                    if decision.status == GovernanceGateDecision.BLOCKED_BY_KILL_SWITCH:
+                        escalation_state = IncidentState.ESCALATED_PAUSED_BY_KILL_SWITCH
+                    elif decision.status == GovernanceGateDecision.BLOCKED_BY_BUDGET:
+                        escalation_state = IncidentState.ESCALATED_BUDGET_EXHAUSTED
+                    else:
+                        escalation_state = IncidentState.ESCALATED_UNKNOWN
+                    logger.error(f"Actuation blocked by Governance Gate: {decision.status.value} - {decision.reason}")
+                    self.incident_repo.terminate_incident(active_subject, discrepancy_reason, escalation_state)
+                    from src.observability.metrics import inc_control_loop_outcome
+                    inc_control_loop_outcome("escalated")
+                    return
+                
+                # Gate is ALLOWED, and the claim has been atomically established in Tx1.
+                # Now Phase 9 ActuationEngine performs the external mutation (Tx2).
+                assert decision.actuation_record is not None, "Governance Gate ALLOWED but did not return ActuationRecord"
+                self.incident_repo.transition_to_actuating(active_subject, discrepancy_reason)
+                actuation_state = self.actuator.execute_claimed_intent(
+                    intent=intent,
+                    record=decision.actuation_record
+                )
+            else:
+                # Fallback for legacy tests
+                self.incident_repo.transition_to_actuating(active_subject, discrepancy_reason)
+                actuation_state = self.actuator.execute_intent(
+                    intent=intent,
+                    execution_identity=active_subject,
+                    discrepancy_reason=discrepancy_reason,
+                    incident_version=int(record.version)  # type: ignore
+                )
             
             if actuation_state == ActuationState.REJECTED or actuation_state == ActuationState.ESCALATED:
                 logger.error(f"Actuation {actuation_state.value} for {active_subject}. Escalating.")
-                self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
+                self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_MUTATION_FAILED)
+                from src.observability.metrics import inc_control_loop_outcome
                 inc_control_loop_outcome("escalated")
                 return
                 
             if actuation_state == ActuationState.TIMEOUT_UNKNOWN:
                 logger.warning(f"Actuation TIMEOUT_UNKNOWN for {active_subject}. Will observe independently.")
                 
-            # OBSERVE AGAIN: Re-read state
+            # ENTER REOBSERVING: mutation was dispatched, now verify external convergence.
+            # This state is durably written before the observation fetch — a crash here
+            # leaves a recoverable REOBSERVING incident that re-attempts observation on next lease.
+            self.incident_repo.transition_to_reobserving(active_subject, discrepancy_reason)
+
+            # OBSERVE AGAIN: Re-read state from external systems
             logger.info(f"OBSERVE AGAIN: Reading final state from simulated external systems")
             
             if intent.action == RecoveryAction.REPAIR_MERCHANT_STATE:
@@ -428,12 +520,12 @@ class V2ControlWorker:
             else:
                 final_reconciliation = evaluate_observation_centric((context.observations + all_new_observations)[0], [])
 
-            
             if final_reconciliation and final_reconciliation.outcome == ReconciliationOutcome.MATCH:
-                logger.info(f"Final Outcome is MATCH. Resolving incident {active_subject}.")
-                # Atomic Persistence: Save Evidence, Upsert Observations, Release Incident
+                logger.info(f"Final Outcome is MATCH. Resolving incident {active_subject} via REOBSERVING→RESOLVED.")
+                # Atomic: persist evidence + observations, then REOBSERVING → RESOLVED.
+                # This is the ONLY autonomous path to RESOLVED.
                 self._trigger_hook("before_commit")
-                self.incident_repo.commit_verification_success(
+                self.incident_repo.persist_reobservation_and_resolve(
                     active_subject=active_subject,
                     discrepancy_reason=discrepancy_reason,
                     new_evidence=all_new_evidence,
@@ -448,21 +540,17 @@ class V2ControlWorker:
                     self.incident_repo.schedule_retry(active_subject, discrepancy_reason, self.worker_id, delay)
                     inc_control_loop_outcome("retry_pending")
                 else:
-                    logger.error(f"Actuation {actuation_state.value} but final state is DISCREPANCY for {active_subject}. Escalating.")
-                    self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
+                    logger.error(f"Actuation succeeded but convergence not established for {active_subject}. ESCALATED_CONVERGENCE_FAILED.")
+                    self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_CONVERGENCE_FAILED)
                     inc_control_loop_outcome("escalated")
-            
-            observe_investigation_latency(time.monotonic() - investigation_start_time)
-            observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
-            inc_control_loop_outcome("resolved")
             
         except (InvestigatorError, OperationalError) as e:
             logger.warning(f"Transient infrastructure error for {active_subject}: {e}. Scheduling retry.")
             r_count = int(record.retry_count) # type: ignore
             if r_count >= 5:
                 logger.error(f"Exhausted retries for {active_subject} due to infrastructure errors. Escalating.")
-                self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
-                observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
+                self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_UNKNOWN)
+                observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
                 inc_control_loop_outcome("escalated")
             else:
                 delay = 30 * (2 ** r_count)
@@ -471,6 +559,6 @@ class V2ControlWorker:
                 
         except Exception as e:
             logger.exception(f"Unexpected programming or deterministic error in _handle_discrepancy for {active_subject}: {e}. Escalating.")
-            self.incident_repo.release_incident(active_subject, discrepancy_reason, escalate=True)
-            observe_incident_lifetime((datetime.now(timezone.utc) - record.created_at).total_seconds())
+            self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_UNKNOWN)
+            observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
             inc_control_loop_outcome("unresolved")

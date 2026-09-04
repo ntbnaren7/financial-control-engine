@@ -20,8 +20,21 @@ class ExecutionGroup:
         self.observations: List[Observation] = []
 
     def get_latest_observation(self) -> Observation:
-        """Returns the most recent observation in this execution group."""
-        return sorted(self.observations, key=lambda o: o.observed_at)[-1]
+        """Returns the most recent observation in this execution group.
+
+        Normalises observed_at to UTC-aware before sorting so naive datetimes
+        (e.g., from seeded test data) and timezone-aware datetimes (produced by
+        the verifier) can be safely compared.
+        """
+        from datetime import timezone
+
+        def _to_utc(obs: Observation):
+            dt = obs.observed_at
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt
+
+        return sorted(self.observations, key=_to_utc)[-1]
 
 def group_by_execution(observations: List[Observation]) -> List[ExecutionGroup]:
     """

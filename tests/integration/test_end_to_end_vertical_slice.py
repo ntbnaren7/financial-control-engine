@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+from src.domain.investigation.lifecycle import IncidentState
 from typing import Dict, Any
 import uuid
 import structlog
@@ -15,7 +16,7 @@ from src.storage.postgres_substrate import (
     PostgresEvidenceRepository, PostgresActiveIncidentRepository,
     PostgresControlEventRepository, PostgresReconciliationResultRepository,
     PostgresActuationRepository,
-    ControlEventType, InvestigationState
+    ControlEventType
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
 from src.engine.evidence_assembler import EvidenceAssembler
@@ -219,7 +220,7 @@ async def test_unsafe_hypothesis_rejected(session_maker):
     # Incident should be ESCALATED
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value) # obs1 is the active_subject here
     assert active is not None
-    assert active.state == InvestigationState.ESCALATED # type: ignore
+    assert active.state == IncidentState.ESCALATED # type: ignore
 
 @pytest.mark.asyncio
 async def test_unknown_action_outcome_forces_independent_decision(session_maker):
@@ -244,7 +245,7 @@ async def test_unknown_action_outcome_forces_independent_decision(session_maker)
     # Verify it was put into RETRY_PENDING
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == InvestigationState.RETRY_PENDING # type: ignore
+    assert active.state == IncidentState.RETRY_PENDING # type: ignore
 
 @pytest.mark.asyncio
 async def test_duplicate_concurrent_action_idempotency(session_maker):

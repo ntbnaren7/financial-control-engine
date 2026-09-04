@@ -23,8 +23,16 @@ class V2PolicyEvaluator:
         if not provider_obs:
             return None
             
-        # Temporal Precedence: sort by observed_at descending
-        provider_obs.sort(key=lambda o: o.observed_at, reverse=True)
+        # Temporal Precedence: sort by observed_at descending.
+        # Normalize to UTC-aware to handle mixed naive (seeded) / aware (verifier) datetimes.
+        def _obs_key(o: Observation):
+            dt = o.observed_at
+            if dt.tzinfo is None:
+                from datetime import timezone
+                return dt.replace(tzinfo=timezone.utc)
+            return dt
+
+        provider_obs.sort(key=_obs_key, reverse=True)
         
         newest = provider_obs[0]
         
@@ -32,12 +40,12 @@ class V2PolicyEvaluator:
         # Here we define ambiguity as multiple observations having the exact same authoritative timestamp
         # but asserting different states.
         for obs in provider_obs[1:]:
-            if obs.observed_at == newest.observed_at and obs.canonical_status != newest.canonical_status:
+            if _obs_key(obs) == _obs_key(newest) and obs.canonical_status != newest.canonical_status:
                 s1 = newest.canonical_status.value if hasattr(newest.canonical_status, "value") else str(newest.canonical_status)
                 s2 = obs.canonical_status.value if hasattr(obs.canonical_status, "value") else str(obs.canonical_status)
                 logger.error("Contradictory evidence detected", 
                              provider=provider, 
-                             timestamp=newest.observed_at.isoformat(), 
+                             timestamp=_obs_key(newest).isoformat(), 
                              state1=s1, 
                              state2=s2)
                 raise ContradictoryEvidenceError(f"Simultaneous contradictory claims for {provider} at {newest.observed_at}")

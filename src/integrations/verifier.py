@@ -20,7 +20,7 @@ class RazorpayVerifier:
         self._client = client
 
     async def verify(self, intent: VerificationIntent, context: InvestigationContext) -> VerificationResult:
-        if intent == VerificationIntent.QUERY_PROVIDER_STATE or intent == VerificationIntent.QUERY_PROVIDER_TRANSACTION:
+        if intent in (VerificationIntent.QUERY_PROVIDER_STATE, VerificationIntent.QUERY_PROVIDER_TRANSACTION, VerificationIntent.COMPARE_SETTLEMENT_RECORD):
             return await self._query_provider_state(intent, context)
         
         return VerificationResult(

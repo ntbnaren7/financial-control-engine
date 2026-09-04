@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+from src.domain.investigation.lifecycle import IncidentState
 from datetime import datetime, timezone
 import uuid
 from typing import Dict, Any
@@ -15,7 +16,7 @@ from src.storage.postgres_substrate import (
     PostgresReconciliationResultRepository,
     PostgresActuationRepository,
     ControlEventType,
-    InvestigationState
+    IncidentState
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
 from src.engine.evidence_assembler import EvidenceAssembler
@@ -125,7 +126,7 @@ async def test_investigator_unavailable_forces_retry(session_maker):
     
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == InvestigationState.RETRY_PENDING
+    assert active.state == IncidentState.RETRY_PENDING
     assert active.hypothesis_payload is None
 
 
@@ -145,7 +146,7 @@ async def test_hallucinated_hypothesis_rejected_and_escalated(session_maker):
     # ValidationRejection forces an ESCALATE (which updates the state to ESCALATED, but doesn't delete the row)
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == InvestigationState.ESCALATED
+    assert active.state == IncidentState.ESCALATED
 
 
 @pytest.mark.asyncio
@@ -165,5 +166,5 @@ async def test_provider_verification_fails_forces_retry(session_maker):
     
     active = inc_repo.get_active_incident("obs1", DiscrepancyReason.STATE_MISMATCH.value)
     assert active is not None
-    assert active.state == InvestigationState.RETRY_PENDING
+    assert active.state == IncidentState.RETRY_PENDING
     assert active.hypothesis_payload is not None
