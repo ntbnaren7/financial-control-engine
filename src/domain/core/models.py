@@ -17,6 +17,7 @@ class CanonicalStatus(str, Enum):
     SETTLED = "SETTLED"
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
+    REFUNDED = "REFUNDED"
 
 @dataclass(frozen=True)
 class FinancialEvent:
@@ -93,6 +94,10 @@ class Observation:
     # Delivery Identity
     ingestion_event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     observation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def __post_init__(self):
+        if self.provider_version is None:
+            object.__setattr__(self, 'provider_version', "")
 
 @dataclass(frozen=True)
 class ReconciliationResult:

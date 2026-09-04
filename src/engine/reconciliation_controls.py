@@ -72,7 +72,16 @@ def evaluate_expectation_centric(
             discrepancy_reason=DiscrepancyReason.STATE_MISMATCH
         )
         
-    # 4. Evaluate amount
+    # 4. Evaluate amount and currency
+    if latest_obs.currency != expectation.currency:
+        return ReconciliationResult(
+            expectation_id=expectation.expectation_id,
+            observation_ids=observation_ids,
+            outcome=ReconciliationOutcome.DISCREPANCY,
+            reconciliation_reason=f"Expected currency {expectation.currency}, observed {latest_obs.currency}",
+            discrepancy_reason=DiscrepancyReason.AMOUNT_MISMATCH
+        )
+        
     if latest_obs.observed_amount != expectation.expected_amount:
         return ReconciliationResult(
             expectation_id=expectation.expectation_id,

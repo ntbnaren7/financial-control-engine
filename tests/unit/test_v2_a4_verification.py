@@ -13,6 +13,10 @@ from src.investigation.verifier import DeterministicVerifier
 def mock_razorpay_client():
     client = MagicMock(spec=RazorpayClient)
     client.get_payment_refunds = AsyncMock()
+    
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     return client
 
 @pytest.fixture

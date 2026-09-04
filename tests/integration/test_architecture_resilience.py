@@ -162,6 +162,9 @@ async def test_provider_returns_same_observation(base_worker_deps):
     deps["obs_repo"].save(obs)
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", f"rcpt_{test_id}", "captured", 2000, "INR", int(now.timestamp()))
     ])
@@ -200,6 +203,9 @@ async def test_two_workers_investigate_simultaneously(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", f"rcpt_{test_id}", "processed", 2000, "INR", int(now.timestamp()) + 1)
     ])
@@ -250,6 +256,9 @@ async def test_worker_crashes_after_claiming_lease(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "processed", 2000, "INR", int(now.timestamp()) + 1)
     ])
@@ -309,6 +318,9 @@ async def test_a4_succeeds_but_persistence_fails(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "processed", 2000, "INR", int(now.timestamp()) + 1)
     ])
@@ -374,6 +386,9 @@ async def test_a4_succeeds_but_rereconciliation_discrepancy_remains(base_worker_
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "created", 2000, "INR", int(now.timestamp()) + 1)
     ])
@@ -429,6 +444,9 @@ async def test_llm_produces_hallucinated_ids(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     
     bad_investigator = MagicMock(spec=Investigator)
     bad_investigator.investigate = AsyncMock(return_value=CausalHypothesis(
@@ -478,6 +496,9 @@ async def test_provider_returns_contradictory_stale_data(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[
         MockRefund(f"rfnd_{test_id}", f"pay_{test_id}", "rcpt", "processed", 2000, "INR", int(now.timestamp()) - 3600)
     ])
@@ -520,6 +541,9 @@ async def test_ollama_unavailable(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     
     from src.investigation.agent import OllamaConnectionError
     offline_investigator = MagicMock(spec=Investigator)
@@ -560,6 +584,9 @@ async def test_provider_unavailable_repeatedly(base_worker_deps):
     ))
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(side_effect=ProviderNetworkError("503 Service Unavailable"))
     
     worker = create_worker(deps, "worker_1", client, standard_investigator())
@@ -611,6 +638,9 @@ async def test_unexpected_execution_independent_path(base_worker_deps):
     deps["obs_repo"].save(obs)
     
     client = MagicMock(spec=RazorpayClient)
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    client.get_payment = AsyncMock(return_value=mock_payment)
     client.get_payment_refunds = AsyncMock(return_value=[])
     
     worker = create_worker(deps, "worker_1", client, standard_investigator())

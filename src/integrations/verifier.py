@@ -58,7 +58,59 @@ class RazorpayVerifier:
             )
 
         try:
-            refunds = await self._client.get_payment_refunds(provider_ref)
+            domain = None
+            if context.expectation:
+                domain = context.expectation.domain
+            if not domain and context.observations:
+                # Fallback to the first observation's domain
+                domain = context.observations[0].correlation_keys.domain if context.observations[0].correlation_keys else context.observations[0].observation_type
+
+            evidence_ids = []
+            new_evidence = []
+            new_obs = []
+            now = datetime.now(timezone.utc)
+
+            if domain == "PAYMENT":
+                payment_record = await self._client.get_payment(provider_ref)
+                
+                payload = payment_record.model_dump()
+                payload_bytes = json.dumps(payload, sort_keys=True).encode()
+                
+                ev = Evidence(
+                    source="razorpay_api",
+                    source_reference=f"pay_{payment_record.id}",
+                    payload_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                    raw_payload_ref=f"s3://evidence/razorpay/{payment_record.id}",
+                    observed_at=now
+                )
+                evidence_ids.append(ev.evidence_id)
+                new_evidence.append(ev)
+                
+                obs = RazorpayV2Normalizer.normalize_payment(payload, ev.evidence_id)
+                new_obs.append(obs)
+                
+            else:
+                refunds = await self._client.get_payment_refunds(provider_ref)
+                for r in refunds:
+                    if internal_ref and r.receipt != internal_ref:
+                        continue
+
+                    payload = r.model_dump()
+                    payload_bytes = json.dumps(payload, sort_keys=True).encode()
+                    
+                    ev = Evidence(
+                        source="razorpay_api",
+                        source_reference=f"refund_{r.id}",
+                        payload_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                        raw_payload_ref=f"s3://evidence/razorpay/{r.id}",
+                        observed_at=now
+                    )
+                    evidence_ids.append(ev.evidence_id)
+                    new_evidence.append(ev)
+                    
+                    obs = RazorpayV2Normalizer.normalize_refund(payload, ev.evidence_id)
+                    new_obs.append(obs)
+
         except ProviderClientError as e:
             return VerificationResult(
                 verification_id=str(uuid.uuid4()),
@@ -81,31 +133,6 @@ class RazorpayVerifier:
                 failure_reason=str(e),
                 verified_at=datetime.now(timezone.utc)
             )
-
-        evidence_ids = []
-        new_evidence = []
-        new_obs = []
-        now = datetime.now(timezone.utc)
-        
-        for r in refunds:
-            if internal_ref and r.receipt != internal_ref:
-                continue
-
-            payload = r.model_dump()
-            payload_bytes = json.dumps(payload, sort_keys=True).encode()
-            
-            ev = Evidence(
-                source="razorpay_api",
-                source_reference=f"refund_{r.id}",
-                payload_hash=hashlib.sha256(payload_bytes).hexdigest(),
-                raw_payload_ref=f"s3://evidence/razorpay/{r.id}",
-                observed_at=now
-            )
-            evidence_ids.append(ev.evidence_id)
-            new_evidence.append(ev)
-            
-            obs = RazorpayV2Normalizer.normalize_refund(payload, ev.evidence_id)
-            new_obs.append(obs)
 
         return VerificationResult(
             verification_id=str(uuid.uuid4()),

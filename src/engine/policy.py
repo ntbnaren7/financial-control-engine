@@ -105,7 +105,13 @@ class V2PolicyEvaluator:
 
         # Policy: Hero Incident (SETTLED provider + PENDING merchant)
         if is_provider_settled and is_merchant_pending:
-            # Safety Check: Verify amounts match
+            # Safety Check: Verify amounts and currencies match
+            if provider_obs.currency != merchant_obs.currency:
+                logger.info("Policy derived ESCALATE: currency mismatch", 
+                            provider_curr=provider_obs.currency, 
+                            merchant_curr=merchant_obs.currency)
+                return RecoveryIntent(action=RecoveryAction.ESCALATE, target_id=active_subject, reason="Currency mismatch")
+
             if provider_obs.observed_amount != merchant_obs.observed_amount:
                 logger.info("Policy derived ESCALATE: amount mismatch", 
                             provider_amt=provider_obs.observed_amount, 

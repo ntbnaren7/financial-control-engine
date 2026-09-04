@@ -53,16 +53,17 @@ class IngestionWorker:
 
                 obs, ev = adapter.normalize_payload(payload.raw_payload)
 
-                # Persist immutable evidence first
-                self.evidence_repo.save(ev)
-                # Persist canonical observation
-                self.observation_repo.save(obs)
+                # Persist evidence, observation and mark processed atomically
+                if hasattr(self.ingestion_repo, "save_normalized_payload"):
+                    self.ingestion_repo.save_normalized_payload(payload.payload_id, ev, obs)
+                else:
+                    self.evidence_repo.save(ev)
+                    self.observation_repo.save(obs)
+                    self.ingestion_repo.mark_processed(payload.payload_id)
 
                 # Optional callback / event trigger for incremental reconciliation
                 if self.on_observation_persisted:
                     self.on_observation_persisted(obs)
-
-                self.ingestion_repo.mark_processed(payload.payload_id)
                 processed_count += 1
                 logger.info(
                     "IngestionWorker: Processed payload successfully",

@@ -306,7 +306,16 @@ class PostgresExpectationRepository:
                     filters.append(SubstrateExpectationRecord.correlation_keys['provider_ref'].as_string() == keys.provider_ref)
             if not filters:
                 return []
-            records = query.filter(or_(*filters)).all()
+            
+            base_query = query.filter(or_(*filters))
+            if keys.domain:
+                if is_sqlite:
+                    base_query = base_query.filter(func.json_extract(SubstrateExpectationRecord.correlation_keys, '$.domain') == keys.domain)
+                else:
+                    from sqlalchemy import cast, String
+                    base_query = base_query.filter(cast(SubstrateExpectationRecord.correlation_keys['domain'], String) == f'"{keys.domain}"')
+
+            records = base_query.all()
             return [r.to_domain() for r in records]
 
 
@@ -404,7 +413,16 @@ class PostgresObservationRepository(ObservationRepository):
                 filters.append(SubstrateObservationRecord.provider_reference == keys.provider_ref)
             if not filters:
                 return []
-            records = query.filter(or_(*filters)).all()
+            
+            base_query = query.filter(or_(*filters))
+            if keys.domain:
+                if is_sqlite:
+                    base_query = base_query.filter(func.json_extract(SubstrateObservationRecord.correlation_keys, '$.domain') == keys.domain)
+                else:
+                    from sqlalchemy import cast, String
+                    base_query = base_query.filter(cast(SubstrateObservationRecord.correlation_keys['domain'], String) == f'"{keys.domain}"')
+
+            records = base_query.all()
             return [r.to_domain() for r in records]
 
     def get_all(self) -> List[Observation]:

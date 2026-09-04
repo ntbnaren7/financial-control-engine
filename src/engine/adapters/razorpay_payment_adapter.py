@@ -17,11 +17,13 @@ from src.engine.adapters.base_adapter import DomainAdapter
 def map_razorpay_payment_status(status: Optional[str]) -> CanonicalStatus:
     """Translate raw Razorpay payment status strings to the canonical FinOp vocabulary."""
     s = (status or "").lower().strip()
-    if s in ("captured", "settled", "processed"):
+    if s == "refunded":
+        return CanonicalStatus.REFUNDED
+    elif s in ("captured", "settled", "processed"):
         return CanonicalStatus.SETTLED
     elif s in ("authorized", "created", "pending"):
         return CanonicalStatus.PENDING
-    elif s in ("failed", "cancelled", "refunded"):
+    elif s in ("failed", "cancelled"):
         return CanonicalStatus.FAILED
     return CanonicalStatus.UNKNOWN
 
@@ -81,10 +83,10 @@ class RazorpayPaymentAdapter(DomainAdapter):
         )
 
         # 2. Produce canonical Observation
-        observation_type = "REFUND" if "rfnd_" in provider_ref or "refund" in event_type else "PAYMENT"
+        observation_type = "REFUND" if "rfnd_" in provider_ref else "PAYMENT"
         
         correlation_keys = CorrelationKeys(
-            internal_ref=receipt,
+            internal_ref=order_id or receipt,
             provider_ref=payment_id or provider_ref,
             provider="razorpay",
             domain=observation_type,
@@ -101,6 +103,7 @@ class RazorpayPaymentAdapter(DomainAdapter):
             evidence_ids=[evidence.evidence_id],
             correlation_keys=correlation_keys,
             observed_at=observed_at,
+            provider_version="",
         )
 
         return observation, evidence

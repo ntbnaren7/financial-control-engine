@@ -28,17 +28,42 @@ class SimulatedObserver:
         if raw_status == "CAPTURED":
             status = CanonicalStatus.SETTLED
         elif raw_status == "REFUNDED":
-            status = CanonicalStatus.FAILED
+            status = CanonicalStatus.REFUNDED
         else:
             status = CanonicalStatus.UNKNOWN
             
         return Observation(
             provider="Razorpay",
             provider_reference=payment["id"],
-            observation_type="PaymentState",
+            observation_type="PAYMENT",
             canonical_status=status,
             observed_amount=payment["amount"],
             currency="INR",
             evidence_ids=[],
             correlation_keys=CorrelationKeys(provider_ref=payment_id, internal_ref=payment.get("order_id"))
+        )
+
+    def observe_provider_refund(self, refund_id: str) -> Optional[Observation]:
+        # Since this is a simulated observer without a distinct refund read method,
+        # we assume refunds belong to Razorpay. In reality, we'd query the refund API.
+        refund = simulator.read_provider_refund(refund_id) if hasattr(simulator, 'read_provider_refund') else None
+        if not refund:
+            return None
+        raw_status = refund.get("status")
+        if raw_status == "PROCESSED":
+            status = CanonicalStatus.SETTLED
+        elif raw_status == "FAILED":
+            status = CanonicalStatus.FAILED
+        else:
+            status = CanonicalStatus.PENDING
+            
+        return Observation(
+            provider="Razorpay",
+            provider_reference=refund["id"],
+            observation_type="REFUND",
+            canonical_status=status,
+            observed_amount=refund["amount"],
+            currency="INR",
+            evidence_ids=[],
+            correlation_keys=CorrelationKeys(provider_ref=refund.get("payment_id"), internal_ref=refund.get("receipt"))
         )

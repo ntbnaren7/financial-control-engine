@@ -271,6 +271,10 @@ def test_policy_evaluator_cross_subject_contamination_escalates(policy_evaluator
 async def test_llm_isolation_verifier_query_derivation():
     """Prove that LLM text/injected IDs cannot alter provider query parameters."""
     mock_client = MagicMock(spec=RazorpayClient)
+    
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    mock_client.get_payment = AsyncMock(return_value=mock_payment)
     mock_client.get_payment_refunds = AsyncMock(return_value=[])
 
     verifier = DeterministicVerifier(razorpay_client=mock_client)

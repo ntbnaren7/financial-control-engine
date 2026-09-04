@@ -317,7 +317,64 @@ class V2ControlWorker:
             intent = self.policy.evaluate(active_subject, discrepancy_reason, combined_observations, combined_evidence, context)
             
             if intent is None or intent.action == RecoveryAction.ESCALATE:
-                logger.info(f"Policy derived ESCALATE for {active_subject}: {intent.reason if intent else 'No safe intent could be derived'}")
+                logger.info(f"Policy derived ESCALATE for {active_subject}: {intent.reason if intent else 'No safe intent could be derived'}. Triggering re-observation guard.")
+                
+                # J. Re-observation / Convergence Guard
+                reobserved = False
+                for obs in combined_observations:
+                    try:
+                        new_obs = None
+                        if obs.provider.lower() == "razorpay":
+                            # Use domain from correlation_keys (set by normalizer) or fall back
+                            # to observation_type prefix. Normalizer emits "API_REFUND"/"API_PAYMENT".
+                            obs_domain = (
+                                (obs.correlation_keys.domain if obs.correlation_keys else None)
+                                or obs.observation_type
+                            ).upper()
+                            if "REFUND" in obs_domain:
+                                new_obs = self.observer.observe_provider_refund(obs.provider_reference)
+                            else:
+                                new_obs = self.observer.observe_provider_payment(obs.provider_reference)
+                        elif obs.provider.lower() == "merchant":
+                            new_obs = self.observer.observe_merchant_order(obs.provider_reference)
+                        
+                        if new_obs and new_obs.canonical_status != obs.canonical_status:
+                            logger.info(f"Re-observation guard caught state change for {obs.provider_reference}: {obs.canonical_status} -> {new_obs.canonical_status}")
+                            all_new_observations.append(new_obs)
+                            reobserved = True
+                    except Exception as fetch_ex:
+                        logger.error(f"Re-observation fetch failed: {fetch_ex}")
+                        
+                if reobserved:
+                    # Re-evaluate reconciliation to see if it's now resolved
+                    from src.engine.reconciliation_controls import evaluate_expectation_centric, evaluate_observation_centric
+                    if context.expectation:
+                        mid_reconciliation = evaluate_expectation_centric(context.expectation, context.observations + all_new_observations)
+                    else:
+                        mid_reconciliation = evaluate_observation_centric((context.observations + all_new_observations)[0], [])
+                        
+                    if mid_reconciliation and mid_reconciliation.outcome == ReconciliationOutcome.MATCH:
+                        logger.info(f"Re-observation resolved the discrepancy. Committing and resolving incident {active_subject}.")
+                        self.incident_repo.commit_verification_success(
+                            active_subject=active_subject,
+                            discrepancy_reason=discrepancy_reason,
+                            new_evidence=all_new_evidence,
+                            new_observations=all_new_observations
+                        )
+                        from src.observability.metrics import inc_control_loop_outcome
+                        inc_control_loop_outcome("resolved")
+                        return
+                    else:
+                        # Re-evaluate policy with new facts
+                        combined_observations = context.observations + all_new_observations
+                        intent = self.policy.evaluate(active_subject, discrepancy_reason, combined_observations, combined_evidence, context)
+                        if intent and intent.action != RecoveryAction.ESCALATE:
+                            logger.info(f"Re-observation averted escalation. New intent: {intent.action}")
+                        else:
+                            logger.info(f"Re-observation did not avert escalation. Final intent: {intent.action if intent else 'None'}")
+                            
+            if intent is None or intent.action == RecoveryAction.ESCALATE:
+                logger.info(f"Proceeding with ESCALATE for {active_subject}")
                 self.incident_repo.commit_verification_success(
                     active_subject=active_subject,
                     discrepancy_reason=discrepancy_reason,

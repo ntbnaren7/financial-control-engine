@@ -41,18 +41,18 @@ class SubstrateIngestionPayloadRecord(Base):
 
     def to_domain(self) -> IngestionPayload:
         return IngestionPayload(
-            payload_id=self.payload_id,
-            provider=self.provider,
-            event_type=self.event_type,
-            raw_payload=self.raw_payload,
-            payload_hash=self.payload_hash,
-            idempotency_key=self.idempotency_key,
-            status=self.status,
-            lease_owner=self.lease_owner,
-            lease_expires_at=self.lease_expires_at,
-            created_at=self.created_at,
-            processed_at=self.processed_at,
-            error_message=self.error_message,
+            payload_id=self.payload_id,  # type: ignore
+            provider=self.provider,  # type: ignore
+            event_type=self.event_type,  # type: ignore
+            raw_payload=self.raw_payload,  # type: ignore
+            payload_hash=self.payload_hash,  # type: ignore
+            idempotency_key=self.idempotency_key,  # type: ignore
+            status=self.status,  # type: ignore
+            lease_owner=self.lease_owner,  # type: ignore
+            lease_expires_at=self.lease_expires_at,  # type: ignore
+            created_at=self.created_at,  # type: ignore
+            processed_at=self.processed_at,  # type: ignore
+            error_message=self.error_message,  # type: ignore
         )
 
 
@@ -61,32 +61,36 @@ class PostgresIngestionRepository:
         self.session_factory = session_factory
 
     def save_payload(self, payload: IngestionPayload) -> Tuple[IngestionPayload, bool]:
+        import sqlalchemy.exc
         with self.session_factory() as session:
-            existing = (
-                session.query(SubstrateIngestionPayloadRecord)
-                .filter_by(provider=payload.provider, idempotency_key=payload.idempotency_key)
-                .first()
-            )
-            if existing:
-                return existing.to_domain(), False
-
-            record = SubstrateIngestionPayloadRecord(
-                payload_id=payload.payload_id,
-                provider=payload.provider,
-                event_type=payload.event_type,
-                raw_payload=payload.raw_payload,
-                payload_hash=payload.payload_hash,
-                idempotency_key=payload.idempotency_key,
-                status=payload.status,
-                lease_owner=payload.lease_owner,
-                lease_expires_at=payload.lease_expires_at,
-                created_at=payload.created_at,
-                processed_at=payload.processed_at,
-                error_message=payload.error_message,
-            )
-            session.add(record)
-            session.commit()
-            return record.to_domain(), True
+            try:
+                record = SubstrateIngestionPayloadRecord(
+                    payload_id=payload.payload_id,
+                    provider=payload.provider,
+                    event_type=payload.event_type,
+                    raw_payload=payload.raw_payload,
+                    payload_hash=payload.payload_hash,
+                    idempotency_key=payload.idempotency_key,
+                    status=payload.status,
+                    lease_owner=payload.lease_owner,
+                    lease_expires_at=payload.lease_expires_at,
+                    created_at=payload.created_at,
+                    processed_at=payload.processed_at,
+                    error_message=payload.error_message,
+                )
+                session.add(record)
+                session.commit()
+                return record.to_domain(), True
+            except sqlalchemy.exc.IntegrityError:
+                session.rollback()
+                existing = (
+                    session.query(SubstrateIngestionPayloadRecord)
+                    .filter_by(provider=payload.provider, idempotency_key=payload.idempotency_key)
+                    .first()
+                )
+                if existing:
+                    return existing.to_domain(), False
+                raise
 
     def claim_pending_payloads(
         self, worker_id: str, limit: int = 10, lease_seconds: int = 30
@@ -137,6 +141,70 @@ class PostgresIngestionRepository:
                 record.lease_owner = None
                 record.lease_expires_at = None
                 session.commit()
+
+    def save_normalized_payload(self, payload_id: str, evidence: Any, observation: Any) -> None:
+        """Atomically saves evidence, observation, and marks ingestion as processed."""
+        from src.storage.postgres_substrate import SubstrateEvidenceRecord, SubstrateObservationRecord
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from dataclasses import asdict
+
+        with self.session_factory() as session:
+            # 1. Evidence
+            ev_record = SubstrateEvidenceRecord.from_domain(evidence)
+            ev_stmt = pg_insert(SubstrateEvidenceRecord).values(
+                evidence_id=ev_record.evidence_id,
+                source=ev_record.source,
+                source_reference=ev_record.source_reference,
+                payload_hash=ev_record.payload_hash,
+                raw_payload_ref=ev_record.raw_payload_ref,
+                observed_at=ev_record.observed_at,
+                source_type=ev_record.source_type,
+            ).on_conflict_do_nothing(index_elements=['evidence_id'])
+            session.execute(ev_stmt)
+
+            # 2. Observation
+            c_keys = asdict(observation.correlation_keys) if observation.correlation_keys else {}
+            status_str = observation.canonical_status.value if hasattr(observation.canonical_status, "value") else str(observation.canonical_status)
+            obs_values = dict(
+                observation_id=observation.observation_id,
+                provider=observation.provider,
+                provider_reference=observation.provider_reference,
+                observation_type=observation.observation_type,
+                observed_state=status_str,
+                observed_amount=observation.observed_amount,
+                currency=observation.currency,
+                evidence_ids=observation.evidence_ids,
+                correlation_keys=c_keys,
+                provider_event_id=observation.provider_event_id,
+                provider_version=observation.provider_version,
+                observed_at=observation.observed_at,
+                ingestion_event_id=observation.ingestion_event_id,
+            )
+            obs_stmt = (
+                pg_insert(SubstrateObservationRecord)
+                .values(**obs_values)
+                .on_conflict_do_update(
+                    constraint="uq_obs_instance_version",
+                    set_={
+                        "observed_state": status_str,
+                        "evidence_ids": observation.evidence_ids,
+                        "observed_at": observation.observed_at,
+                        "ingestion_event_id": observation.ingestion_event_id,
+                    },
+                    where=(
+                        SubstrateObservationRecord.observed_at < observation.observed_at
+                    ),
+                )
+            )
+            session.execute(obs_stmt)
+
+            # 3. Mark processed
+            payload_record = session.query(SubstrateIngestionPayloadRecord).filter_by(payload_id=payload_id).first()
+            if payload_record:
+                payload_record.status = PayloadProcessingStatus.PROCESSED
+                payload_record.processed_at = datetime.now(timezone.utc)
+            
+            session.commit()
 
 
 class MemoryIngestionRepository:

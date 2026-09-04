@@ -232,6 +232,9 @@ async def test_full_phase8d_vertical_slice_closed_loop(client_and_repos):
 
     # 5. Deterministic Verifier Execution
     mock_razorpay_client = MagicMock()
+    mock_payment = MagicMock()
+    mock_payment.model_dump.return_value = {"id": "pay_test", "status": "captured", "amount": 1000, "currency": "INR", "created_at": 1600000000}
+    mock_razorpay_client.get_payment = AsyncMock(return_value=mock_payment)
     mock_razorpay_client.get_payment_refunds = AsyncMock(return_value=[])
 
     verifier = DeterministicVerifier(razorpay_client=mock_razorpay_client)

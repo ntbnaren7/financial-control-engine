@@ -16,7 +16,7 @@ def reconcile(expectation: Expectation, candidate_observations: List[Observation
     reason = "No matching observation found for expectation"
     
     for obs in candidate_observations:
-        if obs.canonical_status == expectation.expected_canonical_status and obs.observed_amount == expectation.expected_amount:
+        if obs.canonical_status == expectation.expected_canonical_status and obs.observed_amount == expectation.expected_amount and obs.currency == expectation.currency:
             outcome = ReconciliationOutcome.MATCH
             reason = "Observation exactly matches expectation state and amount"
             break

@@ -6,12 +6,15 @@ from typing import Any, Dict
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
 from src.domain.ingestion.models import IngestionPayload
-from src.storage.postgres_ingestion import MemoryIngestionRepository
+from src.storage.postgres_ingestion import PostgresIngestionRepository
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
-# Shared/configurable repository instance
-_ingestion_repo = MemoryIngestionRepository()
+# Set to None at module load. Must be injected by the application lifespan
+# before any request can be processed. Using a Memory fallback here would
+# silently discard all financial events if the DB is unavailable — that is
+# a financial-safety defect, not a graceful degradation.
+_ingestion_repo = None
 DEFAULT_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "test_webhook_secret_key")
 
 
@@ -21,6 +24,11 @@ def set_ingestion_repository(repo):
 
 
 def get_ingestion_repository():
+    if _ingestion_repo is None:
+        raise RuntimeError(
+            "Ingestion repository has not been initialized. "
+            "Ensure the application lifespan has run and DATABASE_URL is set."
+        )
     return _ingestion_repo
 
 
