@@ -12,7 +12,8 @@ from src.storage.postgres_substrate import (
     PostgresEvidenceRepository,
     PostgresActiveIncidentRepository,
     PostgresControlEventRepository,
-    PostgresReconciliationResultRepository
+    PostgresReconciliationResultRepository,
+    PostgresActuationRepository
 )
 from src.engine.reconciliation_v2 import V2ReconciliationEngine
 from src.engine.evidence_assembler import EvidenceAssembler
@@ -21,6 +22,8 @@ from src.investigation.validator import OutputValidator
 from src.investigation.verifier import DeterministicVerifier
 from src.integrations.razorpay.client import RazorpayClient
 from src.engine.worker import V2ControlWorker
+from src.ingestion.worker import IngestionWorker
+from src.storage.postgres_ingestion import PostgresIngestionRepository
 from src.observability.logging import configure_logging, get_logger
 import uuid
 import os
@@ -92,6 +95,8 @@ async def main():
     inc_repo = PostgresActiveIncidentRepository(SessionMaker)
     evt_repo = PostgresControlEventRepository(SessionMaker)
     recon_repo = PostgresReconciliationResultRepository(SessionMaker)
+    act_repo = PostgresActuationRepository(SessionMaker)
+    ingestion_repo = PostgresIngestionRepository(SessionMaker)
     
     recon_engine = V2ReconciliationEngine(exp_repo, obs_repo)
     assembler = EvidenceAssembler(exp_repo, obs_repo, ev_repo)
@@ -133,8 +138,24 @@ async def main():
         settings=settings.control_loop
     )
     
+    def _on_obs_persisted(obs):
+        from src.storage.postgres_substrate import ControlEventType
+        evt_repo.publish(
+            event_type=ControlEventType.OBSERVATION_INGESTED,
+            payload={"observation_id": obs.observation_id}
+        )
+
+    ingestion_worker = IngestionWorker(
+        worker_id=worker_id,
+        ingestion_repo=ingestion_repo,
+        observation_repo=obs_repo,
+        evidence_repo=ev_repo,
+        on_observation_persisted=_on_obs_persisted
+    )
+    
     # Run the control loop indefinitely
     while True:
+        ingestion_worker.process_batch(limit=10)
         await worker.poll_and_process()
         await asyncio.sleep(1)
 

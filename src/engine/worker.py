@@ -102,8 +102,8 @@ class V2ControlWorker:
         if not getattr(self, "_metrics_server_started", False):
             try:
                 from prometheus_client import start_http_server
-                start_http_server(8000)
-                logger.info("Prometheus metrics server started on port 8000")
+                start_http_server(9090)
+                logger.info("Prometheus metrics server started on port 9090")
                 self._metrics_server_started = True
             except OSError:
                 self._metrics_server_started = True  # already running, mark done
