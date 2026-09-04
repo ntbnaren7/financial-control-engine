@@ -11,6 +11,7 @@ from src.domain.investigation.lifecycle import IncidentState
 from src.engine.external_simulator import simulator
 
 logger = structlog.get_logger()
+from src.integrations.razorpay.client import ProviderClientError, ProviderNetworkError
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +89,14 @@ class RazorpayRefundActuator:
                 idempotency_key=idempotency_key
             )
             return ActuationState.SUCCESS
+        except ProviderClientError as e:
+            logger.error(f"RazorpayRefundActuator client error: {e}")
+            return ActuationState.REJECTED
+        except ProviderNetworkError as e:
+            logger.error(f"RazorpayRefundActuator network error: {e}")
+            return ActuationState.TIMEOUT_UNKNOWN
         except Exception as e:
-            logger.error(f"RazorpayRefundActuator error: {e}")
+            logger.error(f"RazorpayRefundActuator unknown error: {e}")
             return ActuationState.TIMEOUT_UNKNOWN
 
 

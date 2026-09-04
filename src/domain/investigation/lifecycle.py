@@ -62,6 +62,7 @@ class IncidentStateMachine:
         
         IncidentState.ACTIONABLE: {
             IncidentState.ACTUATION_PENDING,
+            IncidentState.ACTUATING,
             IncidentState.RESOLVED, # Policy says no action
             IncidentState.ESCALATED_PAUSED_BY_KILL_SWITCH,
             IncidentState.ESCALATED_BUDGET_EXHAUSTED,

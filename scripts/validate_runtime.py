@@ -147,7 +147,7 @@ def main():
     in_progress = False
     while time.time() - start_wait < 10:
         in_prog_evt = get_in_progress_event()
-        if in_prog_evt and str(in_prog_evt) == str(evt_id):
+        if in_prog_evt and in_prog_evt == evt_id:
             in_progress = True
             break
         time.sleep(0.1)

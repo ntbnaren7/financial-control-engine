@@ -29,6 +29,12 @@ import argparse
 import os
 import sys
 
+# Pre-load .env so credentials are visible to FCESettings.load() regardless of
+# whether the shell has already exported them (e.g. when running via uv without
+# a full process tree that inherits the uvicorn environment).
+from dotenv import load_dotenv
+load_dotenv(".env")
+
 from src.config.settings import FCESettings
 from src.integrations.razorpay.real_provider import RealRazorpayProvider
 from src.integrations.razorpay.normalizer import RazorpayV2Normalizer
@@ -85,7 +91,8 @@ async def run(payment_id: str) -> int:
         print(f"         error_desc    = {payment.error_description}")
 
     print(f"\n[2/3] Normalizing payment to canonical FCE observation...")
-    observation = normalizer.normalize_payment(payment)
+    # normalizer.normalize_payment expects (raw_payload: dict, evidence_id: str)
+    observation = normalizer.normalize_payment(payment.model_dump(), evidence_id="probe_read_only")
     print(f"[OK]   Canonical observation:")
     print(f"         observation_id      = {observation.observation_id}")
     print(f"         provider            = {observation.provider}")

@@ -292,7 +292,10 @@ class V2ControlWorker:
                     
                 validation_result = self.validator.validate(hypothesis.model_dump(mode="json"), formatted_input)
                 if isinstance(validation_result, ValidationRejection):
-                    logger.warning(f"Hypothesis rejected: {validation_result.reason}")
+                    logger.warning(
+                        f"Hypothesis rejected: {validation_result.reason}. Detail: {validation_result.detail}",
+                        incident_id=record.incident_id,
+                    )
                     self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_UNKNOWN)
                     observe_incident_lifetime((datetime.now(timezone.utc) - _as_utc(record.created_at)).total_seconds())
                     inc_control_loop_outcome("escalated")
@@ -427,14 +430,16 @@ class V2ControlWorker:
                         else:
                             logger.info(f"Re-observation did not avert escalation. Final intent: {intent.action if intent else 'None'}")
                             
+            # Commit verification success (transitions to ACTIONABLE)
+            self.incident_repo.commit_verification_success(
+                active_subject=active_subject,
+                discrepancy_reason=discrepancy_reason,
+                new_evidence=all_new_evidence,
+                new_observations=all_new_observations
+            )
+
             if intent is None or intent.action == RecoveryAction.ESCALATE:
                 logger.info(f"Proceeding with ESCALATE for {active_subject}")
-                self.incident_repo.commit_verification_success(
-                    active_subject=active_subject,
-                    discrepancy_reason=discrepancy_reason,
-                    new_evidence=all_new_evidence,
-                    new_observations=all_new_observations
-                )
                 self.incident_repo.terminate_incident(active_subject, discrepancy_reason, IncidentState.ESCALATED_POLICY_BLOCKED)
                 from src.observability.metrics import inc_control_loop_outcome
                 inc_control_loop_outcome("escalated")

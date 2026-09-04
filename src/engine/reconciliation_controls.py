@@ -6,7 +6,8 @@ from src.domain.core.models import (
     Observation, 
     ReconciliationResult, 
     ReconciliationOutcome, 
-    DiscrepancyReason
+    DiscrepancyReason,
+    CanonicalStatus
 )
 from src.engine.execution_identity import group_by_execution
 
@@ -79,7 +80,11 @@ def evaluate_expectation_centric(
             provider_latest[provider] = obs
 
     for provider, obs in provider_latest.items():
-        if obs.canonical_status != expectation.expected_canonical_status:
+        status_match = obs.canonical_status == expectation.expected_canonical_status
+        if expectation.expected_canonical_status == CanonicalStatus.FAILED and obs.canonical_status == CanonicalStatus.REFUNDED:
+            status_match = True
+
+        if not status_match:
             return ReconciliationResult(
                 expectation_id=expectation.expectation_id,
                 observation_ids=observation_ids,
@@ -104,7 +109,7 @@ def evaluate_expectation_centric(
             expectation_id=expectation.expectation_id,
             observation_ids=observation_ids,
             outcome=ReconciliationOutcome.DISCREPANCY,
-            reconciliation_reason=f"Expected {expectation.expected_amount}, observed {latest_obs.observed_amount}",
+            reconciliation_reason=f"Expected amount {expectation.expected_amount}, observed {latest_obs.observed_amount}",
             discrepancy_reason=DiscrepancyReason.AMOUNT_MISMATCH
         )
     
@@ -112,7 +117,8 @@ def evaluate_expectation_centric(
         expectation_id=expectation.expectation_id,
         observation_ids=observation_ids,
         outcome=ReconciliationOutcome.MATCH,
-        reconciliation_reason="Exact match on state, amount, and execution multiplicity"
+        reconciliation_reason="Matched all qualifying controls",
+        discrepancy_reason=None
     )
 
 def evaluate_observation_centric(

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 
 class RazorpayOrder(BaseModel):
     id: str
@@ -40,7 +40,7 @@ class RazorpayRefund(BaseModel):
     payment_id: str
     status: str
     receipt: Optional[str] = None
-    notes: Optional[dict] = None
+    notes: Optional[Any] = None
     created_at: int
     batch_id: Optional[str] = None
     speed_processed: Optional[str] = None
