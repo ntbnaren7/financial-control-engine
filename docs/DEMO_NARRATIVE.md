@@ -77,24 +77,24 @@ uv run python scripts/test_7_cases.py
 
 ---
 
-## Act 4 — Batch evaluation (45 seconds)
+## Act 4 — Batch evaluation & UI Control Console (45 seconds)
 
-Run:
+Run terminal verification or open the UI console at `http://localhost:5173`:
 ```bash
 uv run python scripts/batch_reconciliation.py --provider mock --count 60
 ```
 
-**Narrate while it runs:**
+**Pitch Narrating Guidance:**
 
-> "60 predefined financial scenarios across MATCH, REFUND, MISSING, and AMOUNT_MISMATCH."
+> "This is not an accuracy claim. These are the observed outcomes of our 60-record control run:
+> • 66.7% direct match rate = 40/60 records matched during deterministic reconciliation.
+> • 18.3% autonomous remediation = 11/60 required and received the demonstrated refund workflow.
+> • 15.0% escalation rate = 9/60 were not safely resolvable.
+> • 85.0% total resolution = 51/60 reached a resolved outcome (40 direct matches + 11 remediated).
+> • 0 unsupported resolutions = none of the 60 were declared resolved without the required control/evidence path."
 
-**After output:**
-
-> "40 cases (66.7%) were direct matches resolved by A1 reconciliation without investigation.
-> 11 remediated cases were autonomously investigated, verified, authorized by governance, and resolved via refund.
-> All 9 unresolved exceptions (MISSING) are explicitly preserved as named escalations
-> (ESCALATED_MISSING_EVIDENCE) rather than manufacturing a false resolution.
-> 85.0% resolution rate with zero timeouts."
+> "Notice we don't hide the 9 escalations. When provider evidence is missing or amounts mismatch,
+> the system halts actuation and generates an honest escalation."
 
 ---
 
