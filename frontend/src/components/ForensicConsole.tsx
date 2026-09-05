@@ -5,7 +5,8 @@ import type {
   PipelineStageId,
   ProofItem,
   ExecutionMode,
-  SystemReadiness
+  SystemReadiness,
+  StageExecutionPayload
 } from '../types';
 
 interface ForensicConsoleProps {
@@ -88,6 +89,30 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
   // Audit view toggle
   const [showAuditSection, setShowAuditSection] = useState(false);
 
+  // Expandable accordion state for stage trails
+  const [expandedStageIds, setExpandedStageIds] = useState<Record<string, boolean>>({});
+
+  const toggleStageExpanded = (stageId: string) => {
+    setExpandedStageIds(prev => ({
+      ...prev,
+      [stageId]: !prev[stageId]
+    }));
+  };
+
+  const expandAllStages = () => {
+    const next: Record<string, boolean> = {};
+    STAGE_CONFIG.forEach(s => {
+      next[s.id] = true;
+    });
+    setExpandedStageIds(next);
+  };
+
+  const collapseAllStages = () => {
+    setExpandedStageIds({});
+  };
+
+  const areAllStagesExpanded = STAGE_CONFIG.every(s => !!expandedStageIds[s.id]);
+
   const effectiveStageId: PipelineStageId = selectedStageId === 'READY' ? 'DETECT' : selectedStageId;
   const activeStagePayload = currentScenario.stages[effectiveStageId];
 
@@ -146,6 +171,360 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
       case 'TERMINAL': return 'Awaiting closed-loop convergence';
       default: return 'Pending';
     }
+  };
+
+  // Reusable Stage-Specific Forensic Evidence Renderer
+  const renderStageForensicContent = (stageId: PipelineStageId, stagePayload?: StageExecutionPayload) => {
+    if (!stagePayload) return null;
+
+    return (
+      <>
+        {/* 1. DETECT: Expected vs Observed Comparison */}
+        {stageId === 'DETECT' && stagePayload.detectData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-sans">
+              {/* Expected Column */}
+              <div>
+                <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2.5">
+                  EXPECTED (Internal Ledger)
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-slate-500">Ledger Status:</span>
+                    <span className="font-bold text-[#00B37E] font-sans">{stagePayload.detectData.expected.status}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
+                    <span className="text-slate-500 font-sans">Amount:</span>
+                    <span className="font-semibold text-[#0C1A30]">
+                      ₹{stagePayload.detectData.expected.amount.toLocaleString()}.00 {stagePayload.detectData.expected.currency}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-slate-500">Source:</span>
+                    <span className="text-slate-700 font-mono text-[11px]">{stagePayload.detectData.expected.source}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Order ID:</span>
+                    <span className="text-slate-700 font-mono">{stagePayload.detectData.expected.id || currentScenario.orderId}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Observed Column */}
+              <div>
+                <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2.5">
+                  OBSERVED (Provider Webhook)
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-slate-500">Webhook Status:</span>
+                    <span className={`font-bold font-sans ${
+                      stagePayload.detectData.observed.status === 'UNKNOWN' ? 'text-rose-600' : 'text-amber-700'
+                    }`}>
+                      {stagePayload.detectData.observed.status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
+                    <span className="text-slate-500 font-sans">Amount:</span>
+                    <span className="font-semibold text-[#0C1A30]">
+                      ₹{stagePayload.detectData.observed.amount.toLocaleString()} {stagePayload.detectData.observed.currency}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-slate-500">Provider:</span>
+                    <span className="text-slate-700 font-mono text-[11px]">{stagePayload.detectData.observed.provider}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Payment ID:</span>
+                    <span className="text-slate-700 font-mono">{stagePayload.detectData.observed.id || '—'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Discrepancy Note */}
+            <div className="mt-3.5 pt-3 border-t border-[#E2E8F0] text-xs text-slate-600 flex items-start gap-2 font-sans">
+              <span className="text-amber-600 font-bold shrink-0">ⓘ</span>
+              <span><strong className="text-[#0C1A30]">Discrepancy:</strong> {stagePayload.detectData.differenceSummary}</span>
+            </div>
+          </div>
+        )}
+
+        {/* 2. INVESTIGATE: Bounded Context + AI Reasoning Transition */}
+        {stageId === 'INVESTIGATE' && stagePayload.investigateData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4 space-y-4">
+            {/* Bounded Evidence List */}
+            <div>
+              <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center justify-between pb-1.5 border-b border-slate-100">
+                <span>BOUNDED EVIDENCE CONTEXT ({stagePayload.investigateData.boundedEvidence.length} RECORDS)</span>
+                <span className="text-slate-400 font-mono text-[10px]">SHA256 Cryptographic Substrate</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {stagePayload.investigateData.boundedEvidence.map((ev: any) => (
+                  <div key={ev.id} className="py-2 flex items-center justify-between gap-4 text-xs">
+                    <div className="truncate">
+                      <span className="text-[#0C6BF5] font-mono font-bold">{ev.id}</span>
+                      <span className="text-slate-700 font-sans ml-3">{ev.summary}</span>
+                    </div>
+                    <span className="text-slate-400 text-[10px] shrink-0 font-mono">{ev.payloadHash?.slice(0, 16)}...</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Proposed Causal Hypothesis */}
+            <div className="pt-3 border-t border-[#E2E8F0]">
+              <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-slate-400 mb-1">
+                Causal Hypothesis (A3 Reasoner)
+              </div>
+              <div className="text-slate-700 font-sans text-xs leading-relaxed">
+                "{stagePayload.investigateData.llmOutput.hypothesis}"
+              </div>
+              <div className="flex flex-wrap gap-6 pt-2.5 mt-2 border-t border-slate-100 text-[11px] font-sans text-slate-500">
+                <div>
+                  <span className="text-slate-400 uppercase text-[10px]">Verification Intent:</span>{' '}
+                  <span className="text-slate-800 font-mono font-semibold">{stagePayload.investigateData.llmOutput.verificationIntent}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase text-[10px]">Target ID:</span>{' '}
+                  <span className="text-slate-800 font-mono font-semibold">{stagePayload.investigateData.llmOutput.targetId}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase text-[10px]">Authority:</span>{' '}
+                  <span className="text-rose-700 font-semibold">NONE (0% · Read-Only)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. VERIFY: D4 Validation + Provider Verification */}
+        {stageId === 'VERIFY' && stagePayload.verifyData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4 space-y-4">
+            {/* Containment Halt Status Strip if Scenario B */}
+            {currentScenarioId === 'SCENARIO_B' && (
+              <div className="border-l-2 border-rose-500 pl-3 py-1 font-sans text-xs">
+                <div className="text-[10px] font-bold uppercase text-rose-700 tracking-wider">
+                  Containment Halt · Truth Not Established
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-rose-900 font-mono mt-0.5 flex-wrap">
+                  <span className="font-semibold">404 NOT FOUND</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-semibold">TRUTH NOT ESTABLISHED</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-semibold">MUTATION BLOCKED</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-bold text-rose-800">ESCALATED_MISSING_EVIDENCE</span>
+                </div>
+              </div>
+            )}
+
+            {/* Containment Halt Status Strip if Scenario C */}
+            {currentScenarioId === 'SCENARIO_C' && (
+              <div className="border-l-2 border-rose-500 pl-3 py-1 font-sans text-xs">
+                <div className="text-[10px] font-bold uppercase text-rose-700 tracking-wider">
+                  D4 Invariant Violation · Adversarial Hallucination Caught
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-rose-900 font-mono mt-0.5 flex-wrap">
+                  <span className="font-semibold">FABRICATED EVIDENCE ID</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-semibold">D4 CONTAINMENT VIOLATION</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-semibold">PROVIDER ACCESS BLOCKED</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-semibold">MUTATION BLOCKED</span>
+                  <span className="text-rose-400">→</span>
+                  <span className="font-bold text-rose-800">ESCALATED_UNKNOWN</span>
+                </div>
+              </div>
+            )}
+
+            {/* D4 Deterministic Output Validation */}
+            <div>
+              <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider flex items-center justify-between pb-2 border-b border-slate-100">
+                <span>D4 DETERMINISTIC OUTPUT VALIDATION</span>
+                <span className={`font-sans font-bold text-xs ${stagePayload.verifyData.d4Validation.passed ? 'text-[#00B37E]' : 'text-rose-700'}`}>
+                  {stagePayload.verifyData.d4Validation.passed ? 'PASSED ✓' : 'FAILED ✕'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2.5 text-xs font-sans">
+                <div>
+                  <span className="text-slate-500">Evidence Containment:</span>{' '}
+                  <strong className={stagePayload.verifyData.d4Validation.evidenceContainmentValid ? 'text-[#00B37E]' : 'text-rose-700'}>
+                    {stagePayload.verifyData.d4Validation.evidenceContainmentValid ? 'VALID' : 'VIOLATION'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-slate-500">Intent Schema:</span>{' '}
+                  <strong className="text-[#00B37E]">VALID</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500">Mutation Authority:</span>{' '}
+                  <strong className="text-rose-700">DENIED · READ-ONLY</strong>
+                </div>
+              </div>
+              {stagePayload.verifyData.d4Validation.rejectionReason && (
+                <div className="text-rose-700 text-xs font-sans pt-2 mt-2 border-t border-rose-100">
+                  {stagePayload.verifyData.d4Validation.rejectionReason}
+                </div>
+              )}
+            </div>
+
+            {/* Deterministic Verifier · Razorpay Developer Terminal Block */}
+            <div className="pt-3 border-t border-[#E2E8F0]">
+              <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider pb-2">
+                DETERMINISTIC VERIFIER · RAZORPAY API
+              </div>
+              <div className="bg-[#0B1528] border border-[#1E2E4A] rounded overflow-hidden font-mono text-xs">
+                {(() => {
+                  const rawEndpoint = stagePayload.verifyData.providerVerification.endpoint || '';
+                  const cleanPath = rawEndpoint.replace(/^GET\s+/i, '').replace(/^\/+/, '');
+                  return (
+                    <>
+                      <div className="bg-[#0F1D33] px-3.5 py-2 border-b border-[#1E2E4A] flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-2">
+                          <span className="px-1.5 py-0.5 rounded bg-[#1A2C4B] text-[#38BDF8] font-bold text-[10px]">
+                            cURL
+                          </span>
+                          <span className="text-slate-300 font-semibold truncate">
+                            GET /{cleanPath}
+                          </span>
+                        </div>
+                        <span className={`font-mono font-bold text-[11px] px-2 py-0.5 rounded ${
+                          stagePayload.verifyData.providerVerification.captured
+                            ? 'bg-[#00B37E]/20 text-[#00B37E]'
+                            : 'bg-rose-500/20 text-rose-400'
+                        }`}>
+                          HTTP {stagePayload.verifyData.providerVerification.responseStatus || 'BLOCKED'} · {stagePayload.verifyData.providerVerification.providerPaymentStatus}
+                        </span>
+                      </div>
+                      <div className="p-3 text-[11px] space-y-1 text-slate-300">
+                        <div className="text-slate-400">
+                          <span className="text-[#38BDF8]">GET</span> https://api.razorpay.com/{cleanPath}
+                        </div>
+                        <div className="text-slate-400 text-[10px]">
+                          Host: <span className="text-slate-200">api.razorpay.com</span> · Authorization: <span className="text-slate-200">Basic [RZP_KEY:RZP_SECRET]</span>
+                        </div>
+                        {stagePayload.verifyData.providerVerification.error ? (
+                          <div className="text-rose-400 font-semibold pt-1.5 border-t border-[#1E2E4A] text-xs">
+                            ✕ Provider Error: {stagePayload.verifyData.providerVerification.error}
+                          </div>
+                        ) : (
+                          <div className="text-[#34D399] font-semibold pt-1.5 border-t border-[#1E2E4A] text-xs">
+                            ✓ Provider response: status="{stagePayload.verifyData.providerVerification.providerPaymentStatus}" · captured={String(stagePayload.verifyData.providerVerification.captured)}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. DECIDE: Governance Gate & Recovery Policy */}
+        {stageId === 'DECIDE' && stagePayload.decideData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4 space-y-4 font-sans text-xs">
+            <div>
+              <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100 flex items-center justify-between">
+                <span>POLICY EVALUATION</span>
+                <span className="text-[#0C6BF5] font-mono font-bold text-xs">{stagePayload.decideData.policyAction}</span>
+              </div>
+              <div className="pt-2 text-slate-700 text-xs leading-relaxed">
+                {stagePayload.decideData.decisionReason}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5">
+                GOVERNANCE GATE CHECKS
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
+                <div>
+                  <span className="text-slate-500">Kill Switch:</span>{' '}
+                  <strong className="text-[#00B37E] font-bold">{stagePayload.decideData.governance.killSwitchState}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500">Action Budget:</span>{' '}
+                  <strong className="text-[#0C1A30] font-mono font-bold">
+                    ₹{stagePayload.decideData.governance.budgetUsed?.toLocaleString()} / ₹{stagePayload.decideData.governance.budgetLimit?.toLocaleString()}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 5. ACT: Idempotent Actuation */}
+        {stageId === 'ACT' && stagePayload.actData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-3">
+            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
+              IDEMPOTENT ACTUATION
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                <span className="text-slate-500">OCC Lease:</span>
+                <span className="text-[#0C6BF5] font-mono font-bold">CAS Lease v{stagePayload.actData.actuation.occVersion.from} → v{stagePayload.actData.actuation.occVersion.to} Acquired</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                <span className="text-slate-500">Idempotency Key:</span>
+                <span className="text-slate-800 font-mono text-[11px]">{stagePayload.actData.actuation.idempotencyKey}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Mutation Dispatched:</span>
+                <span className="text-[#00B37E] font-mono font-bold">{stagePayload.actData.actuation.mutationDispatched}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 6. RE-OBSERVE: Fresh State Re-observation */}
+        {stageId === 'REOBSERVE' && stagePayload.reobserveData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-3">
+            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
+              FRESH STATE RE-OBSERVATION
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                <span className="text-slate-500">Fresh Provider State:</span>
+                <span className="text-[#00B37E] font-mono font-bold">{stagePayload.reobserveData.reobservation.rePolledState}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                <span className="text-slate-500">Re-reconciliation Outcome:</span>
+                <span className="text-[#00B37E] font-bold">{stagePayload.reobserveData.reobservation.reconciliationOutcome}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Loop Status:</span>
+                <span className="text-[#0C6BF5] font-bold">VERIFIED CONVERGED</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 7. OUTCOME: Final Incident Disposition */}
+        {stageId === 'TERMINAL' && stagePayload.terminalData && (
+          <div className="mt-4 border-t border-[#E2E8F0] pt-4 font-sans text-xs">
+            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
+              FINAL INCIDENT DISPOSITION
+            </div>
+            <div className={`text-base font-bold pt-2 ${
+              stagePayload.terminalData.finalState === 'RESOLVED' ? 'text-[#00B37E]' : 'text-rose-700'
+            }`}>
+              {stagePayload.terminalData.finalState}
+            </div>
+            <div className="text-slate-700 text-xs mt-1.5 leading-relaxed">
+              {stagePayload.terminalData.resolutionSummary}
+            </div>
+            {stagePayload.terminalData.honestEscalationReason && (
+              <div className="text-rose-800 text-xs pt-2 mt-2 border-t border-rose-100">
+                <strong>Halt reason:</strong> {stagePayload.terminalData.honestEscalationReason}
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
   };
 
   // Running control trace timeline items
@@ -703,23 +1082,68 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
                   </div>
                 )}
 
-                {/* 7-stage pending overview */}
-                <div className="mt-6 divide-y divide-slate-100 border-t border-slate-100">
-                  {STAGE_CONFIG.map((stage, idx) => (
-                    <div
-                      key={stage.id}
-                      className="flex items-center justify-between py-2 px-1 text-xs font-sans text-slate-400 cursor-default"
+                {/* 7-stage pending overview with Accordion */}
+                <div className="mt-6 border-t border-slate-100 pt-3">
+                  <div className="flex items-center justify-between pb-2">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                      7-STAGE CONTROL PIPELINE PRE-FLIGHT OVERVIEW
+                    </span>
+                    <button
+                      type="button"
+                      onClick={areAllStagesExpanded ? collapseAllStages : expandAllStages}
+                      className="text-[11px] font-sans text-[#0C6BF5] hover:text-[#0A58CA] font-medium cursor-pointer"
                     >
-                      <div className="flex items-center gap-3 truncate">
-                        <span className="w-3.5 text-center text-xs text-slate-300 font-bold">○</span>
-                        <span className="font-bold text-slate-500 shrink-0 w-32">0{idx + 1} {stage.label}</span>
-                        <span className="text-slate-400 font-normal truncate">
-                          {stage.sublabel} · Queued
-                        </span>
-                      </div>
-                      <span className="text-slate-300 text-sm font-mono ml-4 shrink-0">›</span>
-                    </div>
-                  ))}
+                      {areAllStagesExpanded ? 'Collapse All Stages' : 'Expand All Stages'}
+                    </button>
+                  </div>
+
+                  <div className="divide-y divide-slate-100">
+                    {STAGE_CONFIG.map((stage, idx) => {
+                      const isExpanded = !!expandedStageIds[stage.id];
+                      const stagePayload = currentScenario.stages[stage.id];
+
+                      return (
+                        <div key={stage.id} className="py-1">
+                          <div
+                            onClick={() => toggleStageExpanded(stage.id)}
+                            className="flex items-center justify-between py-2 px-1 text-xs font-sans hover:bg-slate-50 cursor-pointer rounded transition-colors group select-none"
+                          >
+                            <div className="flex items-center gap-3 truncate min-w-0">
+                              <span className="w-3.5 text-center text-xs text-slate-400 font-bold shrink-0">○</span>
+                              <span className="font-bold text-slate-600 group-hover:text-[#0C6BF5] shrink-0 w-32">0{idx + 1} {stage.label}</span>
+                              <span className="text-slate-500 font-normal truncate">
+                                {stage.sublabel} · Queued for execution
+                              </span>
+                            </div>
+                            <span
+                              className={`text-slate-400 text-sm font-mono ml-4 shrink-0 transition-transform duration-150 inline-block ${
+                                isExpanded ? 'rotate-90 text-[#0C6BF5] font-bold' : 'group-hover:text-[#0C6BF5]'
+                              }`}
+                            >
+                              ›
+                            </span>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="px-3.5 py-3 mt-1 mb-2 bg-slate-50/70 border border-slate-200 rounded text-xs font-sans shadow-sm">
+                              <div className="font-bold text-[#0C1A30] text-sm">
+                                {stagePayload?.title || `0${idx + 1} ${stage.label}`}
+                              </div>
+                              <div className="text-slate-500 text-[11px] mt-0.5">
+                                {stagePayload?.headline || stage.sublabel}
+                              </div>
+                              {stagePayload?.whyThisHappened && (
+                                <p className="text-[11px] text-slate-500 mt-2 font-sans">
+                                  <strong className="text-[#0C1A30] font-semibold">Planned Invariants:</strong> {stagePayload.whyThisHappened}
+                                </p>
+                              )}
+                              {renderStageForensicContent(stage.id, stagePayload)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -757,388 +1181,125 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
                   <strong className="text-[#0C1A30] font-semibold">Rationale:</strong> {activeStagePayload?.whyThisHappened}
                 </p>
 
-              {/* STAGE-SPECIFIC FORENSIC EVIDENCE: Text + Horizontal Rules + One Active Surface */}
+              {/* STAGE-SPECIFIC FORENSIC EVIDENCE */}
+              {renderStageForensicContent(effectiveStageId, activeStagePayload)}
 
-              {/* 1. DETECT: Expected vs Observed Comparison */}
-              {selectedStageId === 'DETECT' && activeStagePayload?.detectData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs font-sans">
-                    {/* Expected Column */}
-                    <div>
-                      <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-3">
-                        EXPECTED (Internal Ledger)
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                          <span className="text-slate-500">Ledger Status:</span>
-                          <span className="font-bold text-[#00B37E] font-sans">{activeStagePayload.detectData.expected.status}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                          <span className="text-slate-500 font-sans">Amount:</span>
-                          <span className="font-semibold text-[#0C1A30]">
-                            ₹{activeStagePayload.detectData.expected.amount.toLocaleString()}.00 {activeStagePayload.detectData.expected.currency}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                          <span className="text-slate-500">Source:</span>
-                          <span className="text-slate-700 font-mono text-[11px]">{activeStagePayload.detectData.expected.source}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Order ID:</span>
-                          <span className="text-slate-700 font-mono">{activeStagePayload.detectData.expected.id || currentScenario.orderId}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Observed Column */}
-                    <div>
-                      <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-3">
-                        OBSERVED (Provider Webhook)
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                          <span className="text-slate-500">Webhook Status:</span>
-                          <span className={`font-bold font-sans ${
-                            activeStagePayload.detectData.observed.status === 'UNKNOWN' ? 'text-rose-600' : 'text-amber-700'
-                          }`}>
-                            {activeStagePayload.detectData.observed.status}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                          <span className="text-slate-500 font-sans">Amount:</span>
-                          <span className="font-semibold text-[#0C1A30]">
-                            ₹{activeStagePayload.detectData.observed.amount.toLocaleString()} {activeStagePayload.detectData.observed.currency}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                          <span className="text-slate-500">Provider:</span>
-                          <span className="text-slate-700 font-mono text-[11px]">{activeStagePayload.detectData.observed.provider}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Payment ID:</span>
-                          <span className="text-slate-700 font-mono">{activeStagePayload.detectData.observed.id || '—'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Discrepancy Note: Restrained text divider instead of a loud yellow box */}
-                  <div className="mt-4 pt-3 border-t border-[#E2E8F0] text-xs text-slate-600 flex items-start gap-2 font-sans">
-                    <span className="text-amber-600 font-bold shrink-0">ⓘ</span>
-                    <span><strong className="text-[#0C1A30]">Discrepancy:</strong> {activeStagePayload.detectData.differenceSummary}</span>
-                  </div>
+              {/* Pipeline Stage Trail with Accordion */}
+              <div className="mt-6 border-t border-slate-100 pt-3">
+                <div className="flex items-center justify-between pb-2">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                    PIPELINE STAGE TRAIL &amp; DETAILED FORENSICS
+                  </span>
+                  <button
+                    type="button"
+                    onClick={areAllStagesExpanded ? collapseAllStages : expandAllStages}
+                    className="text-[11px] font-sans text-[#0C6BF5] hover:text-[#0A58CA] font-medium cursor-pointer"
+                  >
+                    {areAllStagesExpanded ? 'Collapse All Stages' : 'Expand All Stages'}
+                  </button>
                 </div>
-              )}
 
-              {/* 2. INVESTIGATE: Bounded Context + AI Reasoning Transition */}
-              {selectedStageId === 'INVESTIGATE' && activeStagePayload?.investigateData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 space-y-4">
-                  {/* Bounded Evidence List */}
-                  <div>
-                    <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center justify-between pb-1.5 border-b border-slate-100">
-                      <span>BOUNDED EVIDENCE CONTEXT ({activeStagePayload.investigateData.boundedEvidence.length} RECORDS)</span>
-                      <span className="text-slate-400 font-mono text-[10px]">SHA256 Cryptographic Substrate</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {activeStagePayload.investigateData.boundedEvidence.map(ev => (
-                        <div key={ev.id} className="py-2 flex items-center justify-between gap-4 text-xs">
-                          <div className="truncate">
-                            <span className="text-[#0C6BF5] font-mono font-bold">{ev.id}</span>
-                            <span className="text-slate-700 font-sans ml-3">{ev.summary}</span>
-                          </div>
-                          <span className="text-slate-400 text-[10px] shrink-0 font-mono">{ev.payloadHash.slice(0, 16)}...</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                <div className="divide-y divide-slate-100">
+                  {STAGE_CONFIG.map((stage, stageIdx) => {
+                    const isCompleted = stageIdx < currentStageIndex;
+                    const isActive = stageIdx === currentStageIndex;
+                    const isSelectedAtTop = selectedStageId === stage.id;
+                    const isExpanded = !!expandedStageIds[stage.id];
+                    const isHaltStage = (currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C') && (stage.id === 'VERIFY' || stage.id === 'DECIDE');
+                    const stagePayload = currentScenario.stages[stage.id];
 
-                  {/* Proposed Causal Hypothesis: Demoted, clean typography */}
-                  <div className="pt-3 border-t border-[#E2E8F0]">
-                    <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-slate-400 mb-1">
-                      Causal Hypothesis (A3 Reasoner)
-                    </div>
-                    <div className="text-slate-700 font-sans text-xs leading-relaxed">
-                      "{activeStagePayload.investigateData.llmOutput.hypothesis}"
-                    </div>
-                    <div className="flex flex-wrap gap-6 pt-2.5 mt-2 border-t border-slate-100 text-[11px] font-sans text-slate-500">
-                      <div>
-                        <span className="text-slate-400 uppercase text-[10px]">Verification Intent:</span>{' '}
-                        <span className="text-slate-800 font-mono font-semibold">{activeStagePayload.investigateData.llmOutput.verificationIntent}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 uppercase text-[10px]">Target ID:</span>{' '}
-                        <span className="text-slate-800 font-mono font-semibold">{activeStagePayload.investigateData.llmOutput.targetId}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 uppercase text-[10px]">Authority:</span>{' '}
-                        <span className="text-rose-700 font-semibold">NONE (0% · Read-Only)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 3. VERIFY: D4 Validation + Provider Verification */}
-              {selectedStageId === 'VERIFY' && activeStagePayload?.verifyData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 space-y-4">
-                  {/* Containment Halt Status Strip if Scenario B */}
-                  {currentScenarioId === 'SCENARIO_B' && (
-                    <div className="border-l-2 border-rose-500 pl-3 py-1 font-sans text-xs">
-                      <div className="text-[10px] font-bold uppercase text-rose-700 tracking-wider">
-                        Containment Halt · Truth Not Established
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-rose-900 font-mono mt-0.5 flex-wrap">
-                        <span className="font-semibold">404 NOT FOUND</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-semibold">TRUTH NOT ESTABLISHED</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-semibold">MUTATION BLOCKED</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-bold text-rose-800">ESCALATED_MISSING_EVIDENCE</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Containment Halt Status Strip if Scenario C */}
-                  {currentScenarioId === 'SCENARIO_C' && (
-                    <div className="border-l-2 border-rose-500 pl-3 py-1 font-sans text-xs">
-                      <div className="text-[10px] font-bold uppercase text-rose-700 tracking-wider">
-                        D4 Invariant Violation · Adversarial Hallucination Caught
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-rose-900 font-mono mt-0.5 flex-wrap">
-                        <span className="font-semibold">FABRICATED EVIDENCE ID</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-semibold">D4 CONTAINMENT VIOLATION</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-semibold">PROVIDER ACCESS BLOCKED</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-semibold">MUTATION BLOCKED</span>
-                        <span className="text-rose-400">→</span>
-                        <span className="font-bold text-rose-800">ESCALATED_UNKNOWN</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* D4 Deterministic Output Validation */}
-                  <div>
-                    <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider flex items-center justify-between pb-2 border-b border-slate-100">
-                      <span>D4 DETERMINISTIC OUTPUT VALIDATION</span>
-                      <span className={`font-sans font-bold text-xs ${activeStagePayload.verifyData.d4Validation.passed ? 'text-[#00B37E]' : 'text-rose-700'}`}>
-                        {activeStagePayload.verifyData.d4Validation.passed ? 'PASSED ✓' : 'FAILED ✕'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2.5 text-xs font-sans">
-                      <div>
-                        <span className="text-slate-500">Evidence Containment:</span>{' '}
-                        <strong className={activeStagePayload.verifyData.d4Validation.evidenceContainmentValid ? 'text-[#00B37E]' : 'text-rose-700'}>
-                          {activeStagePayload.verifyData.d4Validation.evidenceContainmentValid ? 'VALID' : 'VIOLATION'}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Intent Schema:</span>{' '}
-                        <strong className="text-[#00B37E]">VALID</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Mutation Authority:</span>{' '}
-                        <strong className="text-rose-700">DENIED · READ-ONLY</strong>
-                      </div>
-                    </div>
-                    {activeStagePayload.verifyData.d4Validation.rejectionReason && (
-                      <div className="text-rose-700 text-xs font-sans pt-2 mt-2 border-t border-rose-100">
-                        {activeStagePayload.verifyData.d4Validation.rejectionReason}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Deterministic Verifier · Razorpay Developer Terminal Block (The One Active Technical Surface) */}
-                  <div className="pt-3 border-t border-[#E2E8F0]">
-                    <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider pb-2">
-                      DETERMINISTIC VERIFIER · RAZORPAY API
-                    </div>
-                    <div className="bg-[#0B1528] border border-[#1E2E4A] rounded overflow-hidden font-mono text-xs">
-                      {(() => {
-                        const rawEndpoint = activeStagePayload.verifyData.providerVerification.endpoint || '';
-                        const cleanPath = rawEndpoint.replace(/^GET\s+/i, '').replace(/^\/+/, '');
-                        return (
-                          <>
-                            <div className="bg-[#0F1D33] px-3.5 py-2 border-b border-[#1E2E4A] flex items-center justify-between text-[11px]">
-                              <div className="flex items-center gap-2">
-                                <span className="px-1.5 py-0.5 rounded bg-[#1A2C4B] text-[#38BDF8] font-bold text-[10px]">
-                                  cURL
-                                </span>
-                                <span className="text-slate-300 font-semibold truncate">
-                                  GET /{cleanPath}
-                                </span>
-                              </div>
-                              <span className={`font-mono font-bold text-[11px] px-2 py-0.5 rounded ${
-                                activeStagePayload.verifyData.providerVerification.captured
-                                  ? 'bg-[#00B37E]/20 text-[#00B37E]'
-                                  : 'bg-rose-500/20 text-rose-400'
-                              }`}>
-                                HTTP {activeStagePayload.verifyData.providerVerification.responseStatus || 'BLOCKED'} · {activeStagePayload.verifyData.providerVerification.providerPaymentStatus}
+                    return (
+                      <div key={stage.id} className="py-1">
+                        <div
+                          onClick={() => toggleStageExpanded(stage.id)}
+                          className="flex items-center justify-between py-2 px-1 text-xs font-sans hover:bg-slate-50 cursor-pointer rounded transition-colors group select-none"
+                        >
+                          <div className="flex items-center gap-3 truncate min-w-0">
+                            <span className={`w-3.5 text-center text-xs shrink-0 ${
+                              isHaltStage
+                                ? 'text-rose-600 font-bold'
+                                : isCompleted
+                                  ? 'text-[#00B37E] font-bold'
+                                  : isActive
+                                    ? 'text-[#0C6BF5] font-bold'
+                                    : 'text-slate-400'
+                            }`}>
+                              {isHaltStage ? '✕' : isCompleted ? '✓' : isActive ? '●' : '○'}
+                            </span>
+                            <span className={`font-bold shrink-0 w-32 ${
+                              isActive || isSelectedAtTop
+                                ? 'text-[#0C6BF5]'
+                                : stageIdx <= currentStageIndex
+                                  ? 'text-[#0C1A30] group-hover:text-[#0C6BF5]'
+                                  : 'text-slate-500'
+                            }`}>
+                              0{stageIdx + 1} {stage.label}
+                            </span>
+                            {isSelectedAtTop && (
+                              <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-[#0C6BF5]/10 text-[#0C6BF5] shrink-0 font-mono">
+                                ACTIVE VIEW
                               </span>
-                            </div>
-                            <div className="p-3 text-[11px] space-y-1 text-slate-300">
-                              <div className="text-slate-400">
-                                <span className="text-[#38BDF8]">GET</span> https://api.razorpay.com/{cleanPath}
-                              </div>
-                              <div className="text-slate-400 text-[10px]">
-                                Host: <span className="text-slate-200">api.razorpay.com</span> · Authorization: <span className="text-slate-200">Basic [RZP_KEY:RZP_SECRET]</span>
-                              </div>
-                              {activeStagePayload.verifyData.providerVerification.error ? (
-                                <div className="text-rose-400 font-semibold pt-1.5 border-t border-[#1E2E4A] text-xs">
-                                  ✕ Provider Error: {activeStagePayload.verifyData.providerVerification.error}
+                            )}
+                            <span className="text-slate-500 font-normal truncate">
+                              {stageIdx <= currentStageIndex ? getStageTrailSummary(stage.id) : getStagePendingSummary(stage.id)}
+                            </span>
+                          </div>
+                          <span
+                            className={`text-slate-400 text-sm font-mono ml-4 shrink-0 transition-transform duration-150 inline-block ${
+                              isExpanded ? 'rotate-90 text-[#0C6BF5] font-bold' : 'group-hover:text-[#0C6BF5]'
+                            }`}
+                          >
+                            ›
+                          </span>
+                        </div>
+
+                        {/* Inline Expandable Accordion Body */}
+                        {isExpanded && (
+                          <div className="px-3.5 py-3 mt-1 mb-2 bg-slate-50/70 border border-slate-200 rounded text-xs font-sans shadow-sm">
+                            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                              <div>
+                                <div className="font-bold text-[#0C1A30] text-sm">
+                                  {stagePayload?.title || `0${stageIdx + 1} ${stage.label}`}
                                 </div>
-                              ) : (
-                                <div className="text-[#34D399] font-semibold pt-1.5 border-t border-[#1E2E4A] text-xs">
-                                  ✓ Provider response: status="{activeStagePayload.verifyData.providerVerification.providerPaymentStatus}" · captured={String(activeStagePayload.verifyData.providerVerification.captured)}
+                                <div className="text-slate-500 text-[11px] mt-0.5">
+                                  {stagePayload?.headline || stage.sublabel}
                                 </div>
+                              </div>
+                              {!isSelectedAtTop && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectStage(stage.id);
+                                  }}
+                                  className="text-[11px] font-medium text-[#0C6BF5] hover:underline cursor-pointer ml-2 shrink-0 flex items-center gap-1"
+                                  title="Set as primary view in header"
+                                >
+                                  <span>Focus Hero View</span>
+                                  <span>↗</span>
+                                </button>
                               )}
                             </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              )}
 
-              {/* 4. DECIDE: Governance Gate & Recovery Policy */}
-              {selectedStageId === 'DECIDE' && activeStagePayload?.decideData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 space-y-4 font-sans text-xs">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100 flex items-center justify-between">
-                      <span>POLICY EVALUATION</span>
-                      <span className="text-[#0C6BF5] font-mono font-bold text-xs">{activeStagePayload.decideData.policyAction}</span>
-                    </div>
-                    <div className="pt-2 text-slate-700 text-xs leading-relaxed">
-                      {activeStagePayload.decideData.decisionReason}
-                    </div>
-                  </div>
+                            {stagePayload?.whyThisHappened && (
+                              <p className="text-[11px] text-slate-500 mt-2 font-sans">
+                                <strong className="text-[#0C1A30] font-semibold">Rationale:</strong> {stagePayload.whyThisHappened}
+                              </p>
+                            )}
 
-                  <div className="pt-2 border-t border-slate-100">
-                    <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5">
-                      GOVERNANCE GATE CHECKS
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
-                      <div>
-                        <span className="text-slate-500">Kill Switch:</span>{' '}
-                        <strong className="text-[#00B37E] font-bold">{activeStagePayload.decideData.governance.killSwitchState}</strong>
+                            {stageIdx <= currentStageIndex ? (
+                              renderStageForensicContent(stage.id, stagePayload)
+                            ) : (
+                              <div className="mt-3 p-2.5 bg-white border border-slate-200 rounded text-slate-500 text-xs italic">
+                                Stage queued. Awaiting execution of preceding pipeline stages in the control loop.
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        <span className="text-slate-500">Action Budget:</span>{' '}
-                        <strong className="text-[#0C1A30] font-mono font-bold">
-                          ₹{activeStagePayload.decideData.governance.budgetUsed.toLocaleString()} / ₹{activeStagePayload.decideData.governance.budgetLimit.toLocaleString()}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              )}
-
-              {/* 5. ACT: Idempotent Actuation */}
-              {selectedStageId === 'ACT' && activeStagePayload?.actData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-3">
-                  <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
-                    IDEMPOTENT ACTUATION
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                      <span className="text-slate-500">OCC Lease:</span>
-                      <span className="text-[#0C6BF5] font-mono font-bold">CAS Lease v{activeStagePayload.actData.actuation.occVersion.from} → v{activeStagePayload.actData.actuation.occVersion.to} Acquired</span>
-                    </div>
-                    <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                      <span className="text-slate-500">Idempotency Key:</span>
-                      <span className="text-slate-800 font-mono text-[11px]">{activeStagePayload.actData.actuation.idempotencyKey}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Mutation Dispatched:</span>
-                      <span className="text-[#00B37E] font-mono font-bold">{activeStagePayload.actData.actuation.mutationDispatched}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 6. RE-OBSERVE: Fresh State Re-observation */}
-              {selectedStageId === 'REOBSERVE' && activeStagePayload?.reobserveData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-3">
-                  <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
-                    FRESH STATE RE-OBSERVATION
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                      <span className="text-slate-500">Fresh Provider State:</span>
-                      <span className="text-[#00B37E] font-mono font-bold">{activeStagePayload.reobserveData.reobservation.rePolledState}</span>
-                    </div>
-                    <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                      <span className="text-slate-500">Re-reconciliation Outcome:</span>
-                      <span className="text-[#00B37E] font-bold">{activeStagePayload.reobserveData.reobservation.reconciliationOutcome}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Loop Status:</span>
-                      <span className="text-[#0C6BF5] font-bold">VERIFIED CONVERGED</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 7. OUTCOME: Final Incident Disposition */}
-              {selectedStageId === 'TERMINAL' && activeStagePayload?.terminalData && (
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs">
-                  <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
-                    FINAL INCIDENT DISPOSITION
-                  </div>
-                  <div className={`text-base font-bold pt-2 ${
-                    activeStagePayload.terminalData.finalState === 'RESOLVED' ? 'text-[#00B37E]' : 'text-rose-700'
-                  }`}>
-                    {activeStagePayload.terminalData.finalState}
-                  </div>
-                  <div className="text-slate-700 text-xs mt-1.5 leading-relaxed">
-                    {activeStagePayload.terminalData.resolutionSummary}
-                  </div>
-                  {activeStagePayload.terminalData.honestEscalationReason && (
-                    <div className="text-rose-800 text-xs pt-2 mt-2 border-t border-rose-100">
-                      <strong>Halt reason:</strong> {activeStagePayload.terminalData.honestEscalationReason}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Remaining Pending / Other Stages List */}
-              <div className="mt-6 divide-y divide-slate-100 border-t border-slate-100">
-                {STAGE_CONFIG.filter(s => s.id !== selectedStageId).map(stage => {
-                  const stageIdx = STAGE_CONFIG.findIndex(s => s.id === stage.id);
-                  const isCompleted = stageIdx < currentStageIndex;
-
-                  return (
-                    <div
-                      key={stage.id}
-                      onClick={() => {
-                        if (stageIdx <= currentStageIndex) {
-                          onSelectStage(stage.id);
-                        }
-                      }}
-                      className={`flex items-center justify-between py-2 px-1 text-xs font-sans transition-colors group ${
-                        stageIdx <= currentStageIndex ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default opacity-75'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 truncate">
-                        <span className={`w-3.5 text-center text-xs ${isCompleted ? 'text-[#00B37E] font-bold' : 'text-slate-400'}`}>
-                          {isCompleted ? '✓' : '○'}
-                        </span>
-                        <span className={`font-bold shrink-0 w-32 ${stageIdx <= currentStageIndex ? 'text-[#0C1A30] group-hover:text-[#0C6BF5]' : 'text-slate-500'}`}>
-                          0{stageIdx + 1} {stage.label}
-                        </span>
-                        <span className="text-slate-500 font-normal truncate">
-                          {isCompleted ? getStageTrailSummary(stage.id) : getStagePendingSummary(stage.id)}
-                        </span>
-                      </div>
-                      <span className="text-slate-300 group-hover:text-[#0C6BF5] text-sm font-mono ml-4 shrink-0 transition-colors">
-                        ›
-                      </span>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           )}
