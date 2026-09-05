@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { BATCH_RUN_SUMMARY, BATCH_RECORDS } from '../scenarios/batchData';
 import type { BatchRecord } from '../types';
 
@@ -35,19 +35,19 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:p-8 bg-black/85 backdrop-blur-sm select-none font-mono text-xs">
-      <div className="bg-[#090a0f] border border-[#1a1c26] w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:p-8 bg-slate-900/40 backdrop-blur-xs select-none font-sans text-xs">
+      <div className="bg-white border border-[#D8E2EE] rounded-md w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden shadow-lg">
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-[#1a1c26] flex items-center justify-between bg-[#090a0f]">
+        <div className="px-6 py-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#FAFCFE]">
           <div>
-            <div className="flex items-center gap-3">
-              <span className="text-white font-bold text-sm tracking-wider uppercase">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[#0C1A30] font-bold text-xs tracking-wider uppercase font-sans">
                 60-RECORD CONTROL RUN
               </span>
-              <span className="text-slate-600">/</span>
-              <span className="text-slate-400 text-xs">TRACK 04 FORENSIC BATCH EVALUATION</span>
+              <span className="text-slate-300">/</span>
+              <span className="text-slate-500 text-[11px] font-medium font-sans">TRACK 04 FORENSIC BATCH EVALUATION</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-[11px] text-slate-500 mt-0.5 font-sans">
               Observed batch outcomes across 60 synthetic payment scenarios. 0 timeouts · 0 unsupported resolutions.
             </p>
           </div>
@@ -55,52 +55,52 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white px-2.5 py-1 border border-[#262938] hover:border-slate-500 transition-colors"
+            className="text-slate-500 hover:text-[#0C1A30] px-2.5 py-1 border border-[#D8E2EE] rounded hover:bg-slate-50 transition-colors text-xs font-semibold cursor-pointer font-sans"
           >
             ESC ✕
           </button>
         </div>
 
-        {/* Quiet Minimalist Metrics Summary Bar */}
-        <div className="px-6 py-3 border-b border-[#1a1c26] bg-[#0c0e14] flex flex-wrap items-center justify-between text-xs gap-4">
-          <div className="flex items-center gap-6">
+        {/* Minimalist Single-Line Metrics Summary Bar (No Card Grids) */}
+        <div className="px-6 py-3 border-b border-[#E2E8F0] bg-white flex flex-wrap items-center justify-between text-xs gap-4 font-sans">
+          <div className="flex items-center gap-5 flex-wrap">
             <div>
-              <span className="text-slate-400 text-[10px] uppercase block">DIRECT MATCH</span>
-              <span className="text-emerald-400 font-bold">{BATCH_RUN_SUMMARY.directMatches}/60</span>{' '}
-              <span className="text-slate-400 text-[11px]">({BATCH_RUN_SUMMARY.directMatchRate}%)</span>
+              <span className="text-slate-400 text-[10px] uppercase font-semibold">DIRECT MATCH:</span>{' '}
+              <span className="text-[#00B37E] font-bold font-mono">{BATCH_RUN_SUMMARY.directMatches}/60</span>{' '}
+              <span className="text-slate-500 text-[11px] font-mono">({BATCH_RUN_SUMMARY.directMatchRate}%)</span>
             </div>
-            <div className="border-l border-[#1a1c26] pl-6">
-              <span className="text-slate-400 text-[10px] uppercase block">REMEDIATED</span>
-              <span className="text-sky-400 font-bold">{BATCH_RUN_SUMMARY.autonomousResolved} refunds</span>{' '}
-              <span className="text-slate-400 text-[11px]">(18.3%)</span>
+            <div className="border-l border-[#E2E8F0] pl-5">
+              <span className="text-slate-400 text-[10px] uppercase font-semibold">REMEDIATED:</span>{' '}
+              <span className="text-[#0C6BF5] font-bold font-mono">{BATCH_RUN_SUMMARY.autonomousResolved} refunds</span>{' '}
+              <span className="text-slate-500 text-[11px] font-mono">(18.3%)</span>
             </div>
-            <div className="border-l border-[#1a1c26] pl-6">
-              <span className="text-slate-400 text-[10px] uppercase block">ESCALATED</span>
-              <span className="text-amber-400 font-bold">{BATCH_RUN_SUMMARY.missingEvidenceEscalations + BATCH_RUN_SUMMARY.amountMismatchEscalations} cases</span>{' '}
-              <span className="text-slate-400 text-[11px]">(15.0%)</span>
+            <div className="border-l border-[#E2E8F0] pl-5">
+              <span className="text-slate-400 text-[10px] uppercase font-semibold">ESCALATED:</span>{' '}
+              <span className="text-amber-700 font-bold font-mono">{BATCH_RUN_SUMMARY.missingEvidenceEscalations + BATCH_RUN_SUMMARY.amountMismatchEscalations} cases</span>{' '}
+              <span className="text-slate-500 text-[11px] font-mono">(15.0%)</span>
             </div>
-            <div className="border-l border-[#1a1c26] pl-6">
-              <span className="text-slate-400 text-[10px] uppercase block">TOTAL RESOLVED</span>
-              <span className="text-white font-bold">{BATCH_RUN_SUMMARY.totalResolutionRate}%</span>{' '}
-              <span className="text-slate-400 text-[11px]">(51/60)</span>
+            <div className="border-l border-[#E2E8F0] pl-5">
+              <span className="text-slate-400 text-[10px] uppercase font-semibold">TOTAL RESOLVED:</span>{' '}
+              <span className="text-[#0C1A30] font-bold font-mono">{BATCH_RUN_SUMMARY.totalResolutionRate}%</span>{' '}
+              <span className="text-slate-500 text-[11px] font-mono">(51/60)</span>
             </div>
           </div>
 
-          <span className="text-slate-400 text-[10px] italic">
+          <span className="text-slate-400 text-[10px] italic font-sans">
             "Observed outcome rates, not an ML accuracy score"
           </span>
         </div>
 
         {/* Filter & Search Bar */}
-        <div className="px-6 py-2.5 border-b border-[#1a1c26] flex flex-wrap items-center justify-between gap-3 bg-[#090a0f]">
-          <div className="flex items-center gap-2 text-xs">
+        <div className="px-6 py-2.5 border-b border-[#E2E8F0] flex flex-wrap items-center justify-between gap-3 bg-[#F8FAFC]">
+          <div className="flex items-center gap-1.5 text-xs font-sans">
             <button
               type="button"
               onClick={() => setFilter('ALL')}
-              className={`px-2.5 py-0.5 border ${
+              className={`px-3 py-1 rounded border transition-colors cursor-pointer ${
                 filter === 'ALL'
-                  ? 'bg-sky-500/10 text-sky-300 border-sky-500/40 font-bold'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'bg-[#EDF5FF] text-[#0C6BF5] border-[#D0E4FF] font-semibold'
+                  : 'bg-white text-slate-600 border-[#D8E2EE] hover:text-[#0C1A30] hover:border-slate-300'
               }`}
             >
               All (60)
@@ -108,10 +108,10 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
             <button
               type="button"
               onClick={() => setFilter('MATCH')}
-              className={`px-2.5 py-0.5 border ${
+              className={`px-3 py-1 rounded border transition-colors cursor-pointer ${
                 filter === 'MATCH'
-                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40 font-bold'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'bg-emerald-50 text-[#00B37E] border-emerald-300 font-semibold'
+                  : 'bg-white text-slate-600 border-[#D8E2EE] hover:text-[#0C1A30] hover:border-slate-300'
               }`}
             >
               Direct Match (40)
@@ -119,10 +119,10 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
             <button
               type="button"
               onClick={() => setFilter('REFUND')}
-              className={`px-2.5 py-0.5 border ${
+              className={`px-3 py-1 rounded border transition-colors cursor-pointer ${
                 filter === 'REFUND'
-                  ? 'bg-sky-500/10 text-sky-300 border-sky-500/40 font-bold'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'bg-[#EDF5FF] text-[#0C6BF5] border-[#D0E4FF] font-semibold'
+                  : 'bg-white text-slate-600 border-[#D8E2EE] hover:text-[#0C1A30] hover:border-slate-300'
               }`}
             >
               Autonomous Refunds (11)
@@ -130,10 +130,10 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
             <button
               type="button"
               onClick={() => setFilter('ESCALATED')}
-              className={`px-2.5 py-0.5 border ${
+              className={`px-3 py-1 rounded border transition-colors cursor-pointer ${
                 filter === 'ESCALATED'
-                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/40 font-bold'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 font-semibold'
+                  : 'bg-white text-slate-600 border-[#D8E2EE] hover:text-[#0C1A30] hover:border-slate-300'
               }`}
             >
               Escalated (9)
@@ -143,29 +143,30 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
           <div className="w-64">
             <input
               type="text"
-              placeholder="Search payment ID, order, notes..."
+              placeholder="Search payment, order, notes..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full bg-[#12141c] border border-[#262938] px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-sky-400"
+              className="w-full bg-white border border-[#D8E2EE] rounded px-3 py-1 text-[#0C1A30] text-xs focus:outline-none focus:border-[#0C6BF5] font-sans transition-colors"
             />
           </div>
         </div>
 
-        {/* Forensic Records Table */}
+        {/* Dense Forensic Ledger Table: RECORD | PAYMENT | AMOUNT | EXPECTED | OBSERVED | OUTCOME | REASON */}
         <div className="flex-1 overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs font-mono">
-            <thead className="bg-[#0c0e14] sticky top-0 border-b border-[#1a1c26] text-[10px] text-slate-400 uppercase tracking-wider">
+            <thead className="bg-[#FAFCFE] sticky top-0 border-b border-[#E2E8F0] text-[10px] text-slate-500 uppercase tracking-wider font-semibold font-sans">
               <tr>
-                <th className="py-2.5 px-6">Record ID</th>
-                <th className="py-2.5 px-3">Payment Reference</th>
-                <th className="py-2.5 px-3">Scenario Type</th>
-                <th className="py-2.5 px-3">Amount</th>
-                <th className="py-2.5 px-3">Provider State</th>
-                <th className="py-2.5 px-3">Outcome</th>
-                <th className="py-2.5 px-6 text-right">Action</th>
+                <th className="py-2.5 px-4">RECORD</th>
+                <th className="py-2.5 px-3">PAYMENT</th>
+                <th className="py-2.5 px-3">AMOUNT</th>
+                <th className="py-2.5 px-3">EXPECTED</th>
+                <th className="py-2.5 px-3">OBSERVED</th>
+                <th className="py-2.5 px-3">OUTCOME</th>
+                <th className="py-2.5 px-4">REASON</th>
+                <th className="py-2.5 px-4 text-right">ACTION</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#14161f]">
+            <tbody className="divide-y divide-[#EBF0F7]">
               {filteredRecords.map(rec => {
                 const isEscalated = rec.outcome === 'ESCALATED';
                 const isRefund = rec.scenarioType === 'REFUND';
@@ -174,26 +175,29 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
                   <tr
                     key={rec.recordId}
                     onClick={() => onSelectRecordForTrace(rec)}
-                    className="hover:bg-[#12141c] transition-colors cursor-pointer group"
+                    className="hover:bg-[#EDF5FF]/50 transition-colors cursor-pointer group"
                   >
-                    <td className="py-2.5 px-6 text-slate-400">{rec.recordId}</td>
-                    <td className="py-2.5 px-3 text-slate-200 font-bold">{rec.paymentId}</td>
-                    <td className="py-2.5 px-3 text-slate-400">{rec.scenarioType}</td>
-                    <td className="py-2.5 px-3 text-slate-200">₹{rec.amount.toLocaleString()}</td>
-                    <td className="py-2.5 px-3 text-slate-400">{rec.providerStatus}</td>
+                    <td className="py-2.5 px-4 text-slate-400 font-medium">{rec.recordId}</td>
+                    <td className="py-2.5 px-3 text-[#0C1A30] font-bold">{rec.paymentId}</td>
+                    <td className="py-2.5 px-3 text-[#0C1A30] font-mono font-semibold">₹{rec.amount.toLocaleString()}</td>
+                    <td className="py-2.5 px-3 text-[#00B37E] font-bold">{rec.expectedStatus}</td>
+                    <td className="py-2.5 px-3 text-slate-700">{rec.providerStatus}</td>
                     <td className="py-2.5 px-3">
-                      <span className={isEscalated ? 'text-amber-400' : isRefund ? 'text-sky-400' : 'text-emerald-400'}>
+                      <span className={`font-semibold ${
+                        isEscalated ? 'text-amber-700' : isRefund ? 'text-[#0C6BF5]' : 'text-[#00B37E]'
+                      }`}>
                         {rec.outcome}
                       </span>
                     </td>
-                    <td className="py-2.5 px-6 text-right">
+                    <td className="py-2.5 px-4 text-slate-500 text-[11px] truncate max-w-xs">{rec.notes}</td>
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onSelectRecordForTrace(rec);
                         }}
-                        className="text-[11px] text-slate-400 group-hover:text-sky-300 transition-colors"
+                        className="text-[11px] text-[#0C6BF5] hover:text-[#0957C7] font-semibold group-hover:underline cursor-pointer"
                       >
                         Inspect Trace →
                       </button>
@@ -205,13 +209,13 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
           </table>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-[#1a1c26] flex items-center justify-between text-xs text-slate-400 bg-[#0c0e14]">
-          <span>Select any exception to inspect its complete progressive investigation trace.</span>
+        {/* Modal Footer */}
+        <div className="px-6 py-3 border-t border-[#E2E8F0] flex items-center justify-between text-xs text-slate-500 bg-[#FAFCFE]">
+          <span>Select any exception to inspect its complete progressive investigation trace in the forensic console.</span>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 bg-[#12141c] hover:bg-[#1c1f2e] text-slate-300 border border-[#262938] transition-colors"
+            className="px-4 py-1.5 bg-white hover:bg-slate-50 text-[#0C1A30] border border-[#D8E2EE] rounded-lg transition-colors font-semibold shadow-2xs cursor-pointer"
           >
             Close
           </button>

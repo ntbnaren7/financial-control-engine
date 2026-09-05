@@ -319,10 +319,10 @@ export const DEMO_SCENARIOS: Record<ScenarioPresetId, ScenarioDefinition> = {
     name: 'Missing Evidence (Provider 404)',
     shortTag: 'Scenario B: Missing 404 Escalation',
     badgeColor: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-    description: 'Internal ledger expects payment pay_missing_404, but Razorpay returns 404 Not Found. FCE halts actuation and safely escalates.',
-    paymentId: 'pay_missing_404_99',
-    orderId: 'ord_missing_88210',
-    amount: 2100,
+    description: 'Internal ledger expects payment pay_miss_057, but Razorpay returns 404 Not Found. FCE halts actuation and safely escalates.',
+    paymentId: 'pay_miss_057',
+    orderId: 'ord_miss_057',
+    amount: 6700,
     currency: 'INR',
     discrepancyReason: 'ABSENT_EXECUTION',
     expectedStatus: 'SETTLED',
@@ -332,26 +332,26 @@ export const DEMO_SCENARIOS: Record<ScenarioPresetId, ScenarioDefinition> = {
       DETECT: {
         stageId: 'DETECT',
         title: 'Deterministic Reconciliation',
-        headline: 'Reconciliation detected absence of provider payment execution',
-        whyThisHappened: 'Internal order ord_missing_88210 created, but no matching observation found.',
+        headline: 'Reconciliation detected absence of provider payment execution.',
+        whyThisHappened: 'Internal order ord_missing_88210 created, but no matching provider event found.',
         authorityBadge: { text: 'DETERMINISTIC CONTROL', domain: 'DETERMINISTIC' },
         detectData: {
           expected: {
-            id: 'exp_ord_missing_88210',
+            id: 'ord_missing_88210',
             source: 'merchant_order_ledger',
             status: 'SETTLED',
-            amount: 2100,
+            amount: 6700,
             currency: 'INR'
           },
           observed: {
-            id: 'obs_none',
+            id: '-',
             provider: 'razorpay',
             status: 'UNKNOWN',
             amount: 0,
             currency: 'INR'
           },
           discrepancyType: 'ABSENT_EXECUTION',
-          differenceSummary: 'Expected payment execution for ₹2,100, but no matching provider event exists in substrate.'
+          differenceSummary: 'Expected payment execution for ₹6,700, but no matching provider event exists in substrate.'
         }
       },
       INVESTIGATE: {

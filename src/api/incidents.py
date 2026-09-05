@@ -92,6 +92,46 @@ def incident_summary(
     }
 
 
+from pydantic import BaseModel
+
+
+class TriggerLiveRequest(BaseModel):
+    payment_id: Optional[str] = None
+    order_id: Optional[str] = None
+    amount: Optional[int] = 4500
+    currency: Optional[str] = "INR"
+
+
+@router.post("/trigger-live")
+async def trigger_live(
+    req: Optional[TriggerLiveRequest] = None,
+    repo: PostgresActiveIncidentRepository = Depends(get_incident_repo),
+):
+    """
+    Trigger authoritative end-to-end LIVE vertical slice execution.
+    Executes all 7 stages against PostgreSQL and local Ollama.
+    """
+    from src.services.live_slice import LiveSliceService
+
+    service = LiveSliceService(repo.session_maker)
+    payment_id = req.payment_id if req else None
+    order_id = req.order_id if req else None
+    amount = req.amount if (req and req.amount) else 4500
+    currency = req.currency if (req and req.currency) else "INR"
+
+    try:
+        return await service.execute_live_run(
+            payment_id=payment_id,
+            order_id=order_id,
+            amount=amount,
+            currency=currency
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{incident_id}")
 def get_incident(
     incident_id: str,

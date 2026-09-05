@@ -4,25 +4,25 @@
 
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-100 font-sans antialiased selection:bg-sky-500/30 selection:text-sky-200 overflow-hidden;
+    @apply bg-[#F4F8FC] text-[#0C1A30] font-sans antialiased selection:bg-[#0C6BF5]/15 selection:text-[#0C1A30];
   }
 }
 
-/* Custom scrollbars for high density financial control consoles */
+/* Custom scrollbars for forensic financial control console */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: #F4F8FC;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.7);
+  background: #D8E2EE;
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.9);
+  background: #B4C4D8;
 }

@@ -59,6 +59,31 @@ def health_check():
     return {"status": "HEALTHY", "version": "2.0.0", "service": "financial-control-engine"}
 
 
+@app.get("/health/readiness", tags=["system"])
+def readiness_check():
+    import urllib.request
+    import json
+    
+    ollama_ready = False
+    try:
+        req = urllib.request.Request("http://localhost:11434/api/tags", headers={"User-Agent": "FCE-HealthCheck"})
+        with urllib.request.urlopen(req, timeout=0.6) as response:
+            if response.status == 200:
+                tags = json.loads(response.read().decode())
+                models = [m.get("name", "") for m in tags.get("models", [])]
+                ollama_ready = any("llama3" in m or "qwen" in m for m in models) or len(models) > 0
+    except Exception:
+        ollama_ready = False
+
+    provider_configured = bool(os.getenv("RAZORPAY_KEY_ID") or os.getenv("RAZORPAY_WEBHOOK_SECRET", "test_webhook_secret_key"))
+
+    return {
+        "backend": "CONNECTED",
+        "ollama": "READY" if ollama_ready else "NOT_DETECTED",
+        "provider": "CONFIGURED" if provider_configured else "UNCONFIGURED",
+    }
+
+
 @app.get("/", tags=["system"])
 def root():
     return {

@@ -346,3 +346,65 @@ export interface BatchRunSummary {
   unsupportedResolutions: number;
   records: BatchRecord[];
 }
+
+// ---------------------------------------------------------------------------
+// Execution Architecture & Normalized Events Layer
+// ---------------------------------------------------------------------------
+
+export type ExecutionMode = 'SIMULATION' | 'LIVE';
+
+export type EngineStatus = 'QUEUED' | 'INVESTIGATING' | 'RESOLVED' | 'ESCALATED';
+
+export interface SystemReadiness {
+  backend: 'CONNECTED' | 'OFFLINE';
+  ollama: 'READY' | 'NOT_DETECTED';
+  provider: 'CONFIGURED' | 'UNCONFIGURED';
+}
+
+export type NormalizedEventType = 
+  | 'RESET_TO_READY'
+  | 'RECONCILIATION_ESTABLISHED'
+  | 'INVESTIGATION_BOUNDED'
+  | 'VERIFICATION_ASSERTED'
+  | 'GOVERNANCE_EVALUATED'
+  | 'ACTUATION_DISPATCHED'
+  | 'OBSERVATION_COLLECTED'
+  | 'TERMINAL_CONVERGED'
+  | 'TERMINAL_ESCALATED';
+
+export interface NormalizedControlEvent {
+  type: NormalizedEventType;
+  stageIndex: number;
+  stageId: PipelineStageId | 'READY';
+  timestamp: string;
+  detail: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface CanonicalEngineState {
+  mode: ExecutionMode;
+  scenarioId: ScenarioPresetId;
+  currentStageIndex: number; // -1 = READY / QUEUED, 0..6 = STAGES
+  selectedStageId: PipelineStageId | 'READY';
+  isPlaying: boolean;
+  playbackSpeed: number; // 1 = 1x, 2 = 2x, 0 = fast
+  status: EngineStatus;
+  discrepancyEstablished: boolean;
+  caseIdentity: {
+    paymentId: string;
+    orderId: string;
+    amount: number;
+    currency: string;
+  };
+  discrepancy: {
+    reason: DiscrepancyReason | null;
+    expectedStatus: CanonicalStatus | null;
+    observedStatus: CanonicalStatus | null;
+    terminalOutcome: IncidentState | null;
+  };
+  accumulatedProofs: ProofItem[];
+  timeline: Array<{ step: string; at: string; detail: string }>;
+  currentScenario: ScenarioDefinition;
+  readiness: SystemReadiness;
+  isLiveRunning: boolean;
+}
