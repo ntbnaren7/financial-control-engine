@@ -8,11 +8,21 @@ export interface IncidentSummary {
   by_state: Record<string, number>;
 }
 
+export interface IncidentItem {
+  incident_id: string;
+  state: string;
+  discrepancy_reason: string;
+  created_at: string;
+  updated_at: string;
+  is_terminal: boolean;
+  is_escalated: boolean;
+}
+
 export interface PaginatedIncidents {
   total: number;
   offset: number;
   limit: number;
-  items: any[]; // using any for now since the API returns a flattened dict
+  items: IncidentItem[];
 }
 
 export interface AuditTrace {
@@ -28,11 +38,11 @@ export interface AuditTrace {
     at: string;
     detail: string;
   }>;
-  recovery_intent: any;
-  actuation: any;
+  recovery_intent: Record<string, unknown> | null;
+  actuation: Record<string, unknown> | null;
   evidence_count: number;
-  operator_actions: any[];
-  discrepancy: any;
+  operator_actions: Array<Record<string, unknown>>;
+  discrepancy: Record<string, unknown> | null;
 }
 
 export const api = {
@@ -51,7 +61,7 @@ export const api = {
     return res.json();
   },
 
-  getIncident: async (incidentId: string): Promise<any> => {
+  getIncident: async (incidentId: string): Promise<Record<string, unknown>> => {
     const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}`);
     if (!res.ok) throw new Error('Failed to fetch incident');
     return res.json();
@@ -63,7 +73,7 @@ export const api = {
     return res.json();
   },
 
-  triggerWebhook: async (payload: any): Promise<any> => {
+  triggerWebhook: async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const res = await fetch(`${API_BASE_URL}/webhooks/razorpay`, {
       method: 'POST',
       headers: {
@@ -76,7 +86,7 @@ export const api = {
     return res.json();
   },
 
-  operatorAction: async (incidentId: string, action: 'retry' | 'resolve' | 'escalate', reason: string): Promise<any> => {
+  operatorAction: async (incidentId: string, action: 'retry' | 'resolve' | 'escalate', reason: string): Promise<Record<string, unknown>> => {
     const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/${action}`, {
       method: 'POST',
       headers: {

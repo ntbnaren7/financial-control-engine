@@ -3,78 +3,89 @@ import { api, type AuditTrace } from '../services/api';
 
 interface OperatorActionsProps {
   trace: AuditTrace | null;
+  incidentId: string;
+  currentState: string;
   onActionComplete: () => void;
 }
 
-export const OperatorActions: React.FC<OperatorActionsProps> = ({ trace, onActionComplete }) => {
+export const OperatorActions: React.FC<OperatorActionsProps> = ({
+  trace,
+  incidentId,
+  currentState,
+  onActionComplete
+}) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
 
-  if (!trace) return null;
-
-  const isEscalated = trace.current_state.startsWith('ESCALATED');
+  const isEscalated = currentState.startsWith('ESCALATED');
+  const isResolved = currentState === 'RESOLVED';
 
   const handleAction = async (action: 'retry' | 'resolve' | 'escalate') => {
     setIsSubmitting(true);
-    setError(null);
+    setStatusMessage(null);
+    setIsError(false);
     try {
-      await api.operatorAction(trace.incident_id, action, `Operator ${action} action from Control Room`);
+      if (trace?.incident_id) {
+        await api.operatorAction(incidentId, action, `Operator ${action} action from Control Room`);
+      }
+      setStatusMessage(`Operator ${action.toUpperCase()} action executed successfully.`);
       onActionComplete();
-    } catch (err: any) {
-      setError(err.message || `Failed to ${action}`);
+    } catch (err: unknown) {
+      setIsError(true);
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(msg || `Failed to execute ${action}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="mt-6 bg-slate-900 border border-slate-700 p-4 rounded-sm">
-      <h3 className="font-mono text-[11px] text-fce-textMuted uppercase tracking-widest border-b border-slate-700 pb-2 mb-4">
-        Operator Interventions
-      </h3>
-      
-      {error && (
-        <div className="mb-4 font-mono text-[11px] text-fce-danger bg-red-950/30 p-2 border border-red-900/50 rounded-sm">
-          {error}
+    <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-sm font-mono text-xs select-none">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
+        <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          OPERATOR INTERVENTIONS (HUMAN-IN-THE-LOOP)
+        </span>
+        <span className="text-[9px] text-slate-500">Incident: {incidentId}</span>
+      </div>
+
+      {statusMessage && (
+        <div className={`p-2 mb-2 rounded-xs border text-[11px] ${
+          isError ? 'bg-rose-950/50 border-rose-800 text-rose-300' : 'bg-emerald-950/50 border-emerald-800 text-emerald-300'
+        }`}>
+          {statusMessage}
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="grid grid-cols-3 gap-2">
         <button
+          type="button"
           onClick={() => handleAction('escalate')}
-          disabled={isSubmitting || trace.current_state === 'RESOLVED' || isEscalated}
-          className="flex-1 font-mono text-xs py-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          disabled={isSubmitting || isResolved || isEscalated}
+          className="py-1.5 px-2 bg-slate-950 hover:bg-slate-850 text-slate-300 border border-slate-800 hover:border-slate-700 rounded-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] uppercase tracking-wider font-semibold"
         >
           FORCE ESCALATE
         </button>
+
         <button
+          type="button"
           onClick={() => handleAction('retry')}
           disabled={isSubmitting || !isEscalated}
-          className="flex-1 font-mono text-xs py-2 bg-slate-800 text-fce-warning border border-slate-700 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="py-1.5 px-2 bg-slate-950 hover:bg-slate-850 text-amber-300 border border-amber-900/60 hover:border-amber-700 rounded-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] uppercase tracking-wider font-semibold"
         >
           RETRY PIPELINE
         </button>
+
         <button
+          type="button"
           onClick={() => handleAction('resolve')}
-          disabled={isSubmitting || trace.current_state === 'RESOLVED'}
-          className="flex-1 font-mono text-xs py-2 bg-slate-800 text-fce-success border border-slate-700 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          disabled={isSubmitting || isResolved}
+          className="py-1.5 px-2 bg-slate-950 hover:bg-slate-850 text-emerald-300 border border-emerald-900/60 hover:border-emerald-700 rounded-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] uppercase tracking-wider font-semibold"
         >
           MANUAL RESOLVE
         </button>
       </div>
-
-      {trace.operator_actions && trace.operator_actions.length > 0 && (
-        <div className="mt-4">
-          <div className="font-mono text-[10px] text-slate-500 uppercase tracking-widest mb-2">Past Interventions</div>
-          <div className="flex flex-col gap-2">
-            {trace.operator_actions.map((action, i) => (
-              <div key={action.action_id || i} className="font-mono text-[10px] bg-slate-800/50 border border-slate-700/50 p-2 rounded-sm text-slate-400">
-                <span className="text-fce-text">{action.action_type}</span> by {action.operator_id} — {action.reason}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

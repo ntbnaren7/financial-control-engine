@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 export function usePolling<T>(
   fetchFn: () => Promise<T>,
   intervalMs: number = 5000,
-  dependencies: any[] = []
+  dependencies: unknown[] = []
 ) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
