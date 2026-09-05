@@ -7,8 +7,9 @@
 
 We built the **Financial Control Engine (FCE)**: an autonomous financial control system that detects ledger discrepancies, uses an untrusted local language model to investigate root causes, establishes external ground truth via deterministic gateway queries, and safely executes autonomous financial recovery without granting AI financial authority.
 
-### Hosted Interactive Simulation Demo
-👉 **Web Demo**: [https://financial-control-engine-fce.vercel.app/](https://financial-control-engine-fce.vercel.app/)
+### Demo Video & Hosted Interactive Simulation
+- 🎥 **Video Walkthrough**: [https://youtu.be/jk6LZ36RM3s?si=XS3nxXRAp9UroumY](https://youtu.be/jk6LZ36RM3s?si=XS3nxXRAp9UroumY)
+- 🌐 **Interactive Web Demo**: [https://financial-control-engine-fce.vercel.app/](https://financial-control-engine-fce.vercel.app/)
 
 > **Hosted Deployment Notice & Scope:**  
 > This web deployment is the **hosted deterministic simulation surface only**. We tested and deployed this surface so evaluators and judges can immediately test, interact with, and verify the actual outputs, decision trees, D4 validation boundaries, and cryptographic evidence trails of the FCE engine directly on their own devices in a frictionless demo environment without setting up Python, Docker, PostgreSQL, or local Ollama models.  
@@ -98,7 +99,7 @@ Track 4 requested evaluating a finance-ops loop across a 50+ record batch. We ev
 
 ## 7. What the Interactive Demo Demonstrates
 
-The project ships with an interactive **Forensic Transaction Console** (hosted at [https://financial-control-engine-fce.vercel.app/](https://financial-control-engine-fce.vercel.app/) and run locally via `frontend/`):
+The project ships with an interactive **Forensic Transaction Console** (hosted at [https://financial-control-engine-fce.vercel.app/](https://financial-control-engine-fce.vercel.app/), demonstrated in the [video walkthrough](https://youtu.be/jk6LZ36RM3s?si=XS3nxXRAp9UroumY), and run locally via `frontend/`):
 
 1. **Hosted Deterministic Simulation Surface**: Deployed for evaluators and judges to test real engine outputs, step through scenarios, inspect state transitions, and explore the 60-transaction batch evaluation directly in any browser without local environment setup.
 2. **Controlled 7-Stage Walkthrough**: Demonstrates the complete control loop deterministically without network or model latency (Scenario A: closed-loop refund).

@@ -8,8 +8,9 @@
 
 The Financial Control Engine (FCE) is a two-layer control system for financial reconciliation and autonomous exception recovery. It couples a deterministic verification kernel with an untrusted, bounded local language model to investigate payment mismatches, verify external ground truth, and safely execute idempotent financial mutations without delegating financial authority to AI.
 
-### Hosted Interactive Simulation Demo
-👉 **Web Demo**: [https://financial-control-engine-fce.vercel.app/](https://financial-control-engine-fce.vercel.app/)
+### Demo Video & Hosted Interactive Simulation
+- 🎥 **Video Walkthrough**: [https://youtu.be/jk6LZ36RM3s?si=XS3nxXRAp9UroumY](https://youtu.be/jk6LZ36RM3s?si=XS3nxXRAp9UroumY)
+- 🌐 **Interactive Web Demo**: [https://financial-control-engine-fce.vercel.app/](https://financial-control-engine-fce.vercel.app/)
 
 > **Hosted Deployment Notice:**  
 > This web deployment is the **hosted deterministic simulation surface only**. It is provided so evaluators can immediately test and inspect the actual outputs, decision trees, D4 validation boundaries, and cryptographic evidence trails of the FCE engine directly on their own devices in a frictionless demo environment without setting up Python, Docker, PostgreSQL, or local Ollama models.  
