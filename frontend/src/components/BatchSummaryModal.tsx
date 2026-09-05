@@ -35,189 +35,165 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm select-none">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-5xl max-h-[90vh] rounded-sm shadow-2xl flex flex-col overflow-hidden font-mono">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:p-8 bg-black/85 backdrop-blur-sm select-none font-mono text-xs">
+      <div className="bg-[#090a0f] border border-[#1a1c26] w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl">
         {/* Modal Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+        <div className="px-6 py-4 border-b border-[#1a1c26] flex items-center justify-between bg-[#090a0f]">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold bg-sky-500/20 text-sky-400 border border-sky-500/40 px-2 py-0.5 rounded-xs uppercase">
-                Track 04 • AI Finance Controller Proof
+            <div className="flex items-center gap-3">
+              <span className="text-white font-bold text-sm tracking-wider uppercase">
+                60-RECORD CONTROL RUN
               </span>
-              <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider">
-                60-RECORD FINANCIAL CONTROL RUN
-              </h2>
+              <span className="text-slate-600">/</span>
+              <span className="text-slate-400 text-xs">TRACK 04 FORENSIC BATCH EVALUATION</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Demonstrating full closed-loop control across synthetic payment batches with honest exceptions and zero unsupported resolutions.
+              Observed batch outcomes across 60 synthetic payment scenarios. 0 timeouts · 0 unsupported resolutions.
             </p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-200 p-1.5 rounded-sm hover:bg-slate-800 transition-colors"
+            className="text-slate-400 hover:text-white px-2.5 py-1 border border-[#262938] hover:border-slate-500 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            ESC ✕
           </button>
         </div>
 
-        {/* KPI Top Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-slate-950/60 border-b border-slate-800 shrink-0">
-          <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-sm">
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Direct Matches</div>
-            <div className="text-xl font-bold text-emerald-400">
-              {BATCH_RUN_SUMMARY.directMatches} <span className="text-xs font-normal text-slate-400">/ 60</span>
+        {/* Quiet Minimalist Metrics Summary Bar */}
+        <div className="px-6 py-3 border-b border-[#1a1c26] bg-[#0c0e14] flex flex-wrap items-center justify-between text-xs gap-4">
+          <div className="flex items-center gap-6">
+            <div>
+              <span className="text-slate-400 text-[10px] uppercase block">DIRECT MATCH</span>
+              <span className="text-emerald-400 font-bold">{BATCH_RUN_SUMMARY.directMatches}/60</span>{' '}
+              <span className="text-slate-400 text-[11px]">({BATCH_RUN_SUMMARY.directMatchRate}%)</span>
             </div>
-            <div className="text-[10px] text-emerald-400/80 mt-0.5">
-              {BATCH_RUN_SUMMARY.directMatchRate}% observed direct match
+            <div className="border-l border-[#1a1c26] pl-6">
+              <span className="text-slate-400 text-[10px] uppercase block">REMEDIATED</span>
+              <span className="text-sky-400 font-bold">{BATCH_RUN_SUMMARY.autonomousResolved} refunds</span>{' '}
+              <span className="text-slate-400 text-[11px]">(18.3%)</span>
             </div>
-          </div>
-
-          <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-sm">
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Autonomous Resolutions</div>
-            <div className="text-xl font-bold text-sky-400">
-              {BATCH_RUN_SUMMARY.autonomousResolved} <span className="text-xs font-normal text-slate-400">refunds</span>
+            <div className="border-l border-[#1a1c26] pl-6">
+              <span className="text-slate-400 text-[10px] uppercase block">ESCALATED</span>
+              <span className="text-amber-400 font-bold">{BATCH_RUN_SUMMARY.missingEvidenceEscalations + BATCH_RUN_SUMMARY.amountMismatchEscalations} cases</span>{' '}
+              <span className="text-slate-400 text-[11px]">(15.0%)</span>
             </div>
-            <div className="text-[10px] text-sky-400/80 mt-0.5">
-              Closed without human intervention
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-sm">
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Honest Escalations</div>
-            <div className="text-xl font-bold text-amber-400">
-              {BATCH_RUN_SUMMARY.missingEvidenceEscalations + BATCH_RUN_SUMMARY.amountMismatchEscalations} <span className="text-xs font-normal text-slate-400">cases</span>
-            </div>
-            <div className="text-[10px] text-amber-400/80 mt-0.5">
-              Missing evidence & amount mismatches
+            <div className="border-l border-[#1a1c26] pl-6">
+              <span className="text-slate-400 text-[10px] uppercase block">TOTAL RESOLVED</span>
+              <span className="text-white font-bold">{BATCH_RUN_SUMMARY.totalResolutionRate}%</span>{' '}
+              <span className="text-slate-400 text-[11px]">(51/60)</span>
             </div>
           </div>
 
-          <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-sm">
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Total Resolution Rate</div>
-            <div className="text-xl font-bold text-emerald-400">
-              {BATCH_RUN_SUMMARY.totalResolutionRate}%
-            </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">
-              0 timeouts • 0 unsupported
-            </div>
-          </div>
+          <span className="text-slate-400 text-[10px] italic">
+            "Observed outcome rates, not an ML accuracy score"
+          </span>
         </div>
 
         {/* Filter & Search Bar */}
-        <div className="p-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-1.5 text-xs">
+        <div className="px-6 py-2.5 border-b border-[#1a1c26] flex flex-wrap items-center justify-between gap-3 bg-[#090a0f]">
+          <div className="flex items-center gap-2 text-xs">
             <button
               type="button"
               onClick={() => setFilter('ALL')}
-              className={`px-2.5 py-1 rounded-xs border ${
+              className={`px-2.5 py-0.5 border ${
                 filter === 'ALL'
-                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
-                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-300'
+                  ? 'bg-sky-500/10 text-sky-300 border-sky-500/40 font-bold'
+                  : 'text-slate-400 border-transparent hover:text-slate-200'
               }`}
             >
-              All Records ({BATCH_RECORDS.length})
+              All (60)
             </button>
             <button
               type="button"
               onClick={() => setFilter('MATCH')}
-              className={`px-2.5 py-1 rounded-xs border ${
+              className={`px-2.5 py-0.5 border ${
                 filter === 'MATCH'
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 font-bold'
-                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-300'
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40 font-bold'
+                  : 'text-slate-400 border-transparent hover:text-slate-200'
               }`}
             >
-              Direct Match ({BATCH_RUN_SUMMARY.directMatches})
+              Direct Match (40)
             </button>
             <button
               type="button"
               onClick={() => setFilter('REFUND')}
-              className={`px-2.5 py-1 rounded-xs border ${
+              className={`px-2.5 py-0.5 border ${
                 filter === 'REFUND'
-                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
-                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-300'
+                  ? 'bg-sky-500/10 text-sky-300 border-sky-500/40 font-bold'
+                  : 'text-slate-400 border-transparent hover:text-slate-200'
               }`}
             >
-              Autonomous Refunds ({BATCH_RUN_SUMMARY.autonomousResolved})
+              Autonomous Refunds (11)
             </button>
             <button
               type="button"
               onClick={() => setFilter('ESCALATED')}
-              className={`px-2.5 py-1 rounded-xs border ${
+              className={`px-2.5 py-0.5 border ${
                 filter === 'ESCALATED'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
-                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-300'
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/40 font-bold'
+                  : 'text-slate-400 border-transparent hover:text-slate-200'
               }`}
             >
-              Escalated ({BATCH_RUN_SUMMARY.missingEvidenceEscalations + BATCH_RUN_SUMMARY.amountMismatchEscalations})
+              Escalated (9)
             </button>
           </div>
 
           <div className="w-64">
             <input
               type="text"
-              placeholder="Search payment, order or note..."
+              placeholder="Search payment ID, order, notes..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 px-2.5 py-1 text-xs text-slate-200 rounded-xs focus:outline-none focus:border-sky-500"
+              className="w-full bg-[#12141c] border border-[#262938] px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-sky-400"
             />
           </div>
         </div>
 
-        {/* Records Table */}
+        {/* Forensic Records Table */}
         <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-slate-950/80 sticky top-0 border-b border-slate-800 text-[10px] text-slate-400 uppercase tracking-wider">
+          <table className="w-full text-left border-collapse text-xs font-mono">
+            <thead className="bg-[#0c0e14] sticky top-0 border-b border-[#1a1c26] text-[10px] text-slate-400 uppercase tracking-wider">
               <tr>
-                <th className="p-2.5">Record ID</th>
-                <th className="p-2.5">Payment Reference</th>
-                <th className="p-2.5">Scenario Type</th>
-                <th className="p-2.5">Amount</th>
-                <th className="p-2.5">Provider Status</th>
-                <th className="p-2.5">Outcome</th>
-                <th className="p-2.5">Action</th>
+                <th className="py-2.5 px-6">Record ID</th>
+                <th className="py-2.5 px-3">Payment Reference</th>
+                <th className="py-2.5 px-3">Scenario Type</th>
+                <th className="py-2.5 px-3">Amount</th>
+                <th className="py-2.5 px-3">Provider State</th>
+                <th className="py-2.5 px-3">Outcome</th>
+                <th className="py-2.5 px-6 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-[#14161f]">
               {filteredRecords.map(rec => {
-                let badgeStyle = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
-                if (rec.outcome === 'ESCALATED') {
-                  badgeStyle = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
-                } else if (rec.scenarioType === 'REFUND') {
-                  badgeStyle = 'bg-sky-500/15 text-sky-400 border-sky-500/30';
-                }
+                const isEscalated = rec.outcome === 'ESCALATED';
+                const isRefund = rec.scenarioType === 'REFUND';
 
                 return (
                   <tr
                     key={rec.recordId}
-                    className="hover:bg-slate-800/40 transition-colors group cursor-pointer"
                     onClick={() => onSelectRecordForTrace(rec)}
+                    className="hover:bg-[#12141c] transition-colors cursor-pointer group"
                   >
-                    <td className="p-2.5 text-slate-400 font-semibold">{rec.recordId}</td>
-                    <td className="p-2.5 text-slate-200 font-bold">{rec.paymentId}</td>
-                    <td className="p-2.5 text-slate-300">
-                      <span className="px-1.5 py-0.5 rounded-xs bg-slate-800 border border-slate-700 text-[10px]">
-                        {rec.scenarioType}
-                      </span>
-                    </td>
-                    <td className="p-2.5 text-slate-200">₹{rec.amount.toLocaleString()}</td>
-                    <td className="p-2.5 text-slate-400">{rec.providerStatus}</td>
-                    <td className="p-2.5">
-                      <span className={`px-2 py-0.5 rounded-xs border text-[10px] font-bold ${badgeStyle}`}>
+                    <td className="py-2.5 px-6 text-slate-400">{rec.recordId}</td>
+                    <td className="py-2.5 px-3 text-slate-200 font-bold">{rec.paymentId}</td>
+                    <td className="py-2.5 px-3 text-slate-400">{rec.scenarioType}</td>
+                    <td className="py-2.5 px-3 text-slate-200">₹{rec.amount.toLocaleString()}</td>
+                    <td className="py-2.5 px-3 text-slate-400">{rec.providerStatus}</td>
+                    <td className="py-2.5 px-3">
+                      <span className={isEscalated ? 'text-amber-400' : isRefund ? 'text-sky-400' : 'text-emerald-400'}>
                         {rec.outcome}
                       </span>
                     </td>
-                    <td className="p-2.5">
+                    <td className="py-2.5 px-6 text-right">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onSelectRecordForTrace(rec);
                         }}
-                        className="text-[10px] bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-xs uppercase tracking-wider transition-colors"
+                        className="text-[11px] text-slate-400 group-hover:text-sky-300 transition-colors"
                       >
                         Inspect Trace →
                       </button>
@@ -230,12 +206,12 @@ export const BatchSummaryModal: React.FC<BatchSummaryModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <span>Click any transaction to load its complete control trace into the live engine.</span>
+        <div className="px-6 py-3 border-t border-[#1a1c26] flex items-center justify-between text-xs text-slate-400 bg-[#0c0e14]">
+          <span>Select any exception to inspect its complete progressive investigation trace.</span>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded-sm uppercase tracking-wider text-[11px]"
+            className="px-3 py-1 bg-[#12141c] hover:bg-[#1c1f2e] text-slate-300 border border-[#262938] transition-colors"
           >
             Close
           </button>
