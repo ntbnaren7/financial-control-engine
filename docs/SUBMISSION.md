@@ -9,9 +9,8 @@ The **Financial Control Engine (FCE)** is an autonomous financial control system
 
 | Surface | Link / Target | Runtime & Requirements | Scope & Purpose |
 | :--- | :--- | :--- | :--- |
-| 🌐 **Hosted Web Demo** | [Launch Simulator](https://financial-control-engine-fce.vercel.app/) | Browser only (Zero setup) | **Hosted deterministic simulation surface only**. Deployed for judges and evaluators to test real engine outputs, D4 boundaries, and forensic audit trails instantly on any device without installing Python, Docker, or Ollama. |
+| 🌐 **Hosted Web Demo** | [Launch Simulator](https://financial-control-engine-fce.vercel.app/) | Browser only (Zero setup) | **Hosted deterministic simulation surface only**. Deployed for judges and evaluators to test real engine outputs, D4 boundaries, and forensic audit trails instantly on any device without installing Python, Docker, or Ollama. *(Live execution path runs locally via FastAPI + Ollama).* |
 | 🎥 **Video Walkthrough** | [Watch on YouTube](https://youtu.be/jk6LZ36RM3s?si=XS3nxXRAp9UroumY) | Video player | End-to-end architecture breakdown, live local engine proof, and scenario execution. |
-| 💻 **Local Live Engine** | `http://localhost:8000` | FastAPI + Ollama (`qwen3:8b`) + PostgreSQL | **Live execution path**. Dispatches live model inference and real-time Razorpay sandbox API mutations. *(Not hosted on Vercel).* |
 
 ---
 
@@ -117,7 +116,6 @@ uv run python scripts/batch_reconciliation.py --provider mock --count 60
 | **Inline Audit Accordions** | Yes — inspect SHA-256 evidence hashes and context | Yes — full forensic inspector |
 | **Razorpay cURL Terminal** | Yes — dark terminal inspecting HTTP requests | Yes — dark terminal view |
 | **60-Record Batch Modal** | Yes — filter by Match, Remediation, and Escalation | Yes — interactive batch inspector |
-| **Live Engine Triggering** | No (Hosted simulation surface only; no local backend) | **Yes** — connects to `localhost:8000` + Ollama (`qwen3:8b`) |
 
 ---
 
