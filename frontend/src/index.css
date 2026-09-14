@@ -1,10 +1,30 @@
+@import "@fontsource-variable/geist";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    @apply bg-[#F4F8FC] text-[#0C1A30] font-sans antialiased selection:bg-[#0C6BF5]/15 selection:text-[#0C1A30];
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .hero-grid {
+    background-size: 60px 60px;
+    background-image: 
+      linear-gradient(to right, rgba(255, 255, 255, 0.15) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+    mask-image: radial-gradient(ellipse at 50% 50%, black, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, black, transparent 80%);
   }
 }
 
@@ -15,14 +35,14 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #F4F8FC;
+  background: #010A1C;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #D8E2EE;
+  background: #1E293B;
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #B4C4D8;
+  background: #334155;
 }

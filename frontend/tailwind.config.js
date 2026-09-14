@@ -8,19 +8,36 @@ export default {
     extend: {
       fontFamily: {
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
-        sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['"Inter"', 'system-ui', 'sans-serif'],
       },
       colors: {
         fce: {
-          bg: '#0f172a', // slate-900
-          surface: '#1e293b', // slate-800
-          surfaceHover: '#334155', // slate-700
-          text: '#f1f5f9', // slate-100
-          textMuted: '#94a3b8', // slate-400
-          accent: '#38bdf8', // sky-400
-          success: '#10b981', // emerald-500
-          warning: '#f59e0b', // amber-500
-          danger: '#ef4444', // red-500
+          bg: '#010A1C',
+          bgAlt: '#02112C',
+          surface: 'rgba(255, 255, 255, 0.03)',
+          surfaceHover: 'rgba(255, 255, 255, 0.06)',
+          border: 'rgba(255, 255, 255, 0.1)',
+          text: '#FFFFFF', 
+          textMuted: '#94A3B8',
+          accent: '#3B82F6',
+          accentHover: '#2563EB',
+          accentGlow: '#1D4ED8',
+          success: '#10B981', 
+          warning: '#F59E0B', 
+          danger: '#EF4444', 
+        }
+      },
+      backgroundImage: {
+        'grid-pattern': "url(\"data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0V0zm1 1h38v38H1V1z' fill='%23ffffff' fill-opacity='0.03' fill-rule='evenodd'/%3E%3C/svg%3E\")",
+        'radial-glow': 'radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.15) 0%, rgba(1, 10, 28, 0) 50%)',
+      },
+      keyframes: {
+        float: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-15px)' },
+        },
+        dash: {
+          'to': { strokeDashoffset: '-100' },
         }
       }
     },

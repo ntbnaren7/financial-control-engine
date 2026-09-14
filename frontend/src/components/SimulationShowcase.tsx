@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
+import { Zap } from 'lucide-react';
 import type {
   ScenarioDefinition,
   ScenarioPresetId,
   PipelineStageId,
   ProofItem,
-  ExecutionMode,
-  SystemReadiness,
   StageExecutionPayload
 } from '../types';
 
-interface ForensicConsoleProps {
+interface SimulationShowcaseProps {
   currentScenario: ScenarioDefinition;
   currentScenarioId: ScenarioPresetId;
   onSelectScenario: (scenarioId: ScenarioPresetId) => void;
@@ -23,22 +22,13 @@ interface ForensicConsoleProps {
   playbackSpeed: number;
   onChangeSpeed: (speed: number) => void;
   proofs: ProofItem[];
-  onOpenBatchModal: () => void;
-  onInjectCustomWebhook: (payload: { paymentId: string; orderId: string; amount: number }) => void;
-  isInjecting: boolean;
-
-  // Dual Execution & Progressive Reveal extensions
-  executionMode: ExecutionMode;
-  onSelectMode: (mode: ExecutionMode) => void;
+  // Core state
   caseIdentity: {
     paymentId: string;
     orderId: string;
     amount: number;
     currency: string;
   };
-  readiness: SystemReadiness;
-  isLiveRunning: boolean;
-  onBeginLiveRun: () => void;
 }
 
 const STAGE_CONFIG: Array<{ id: PipelineStageId; num: string; label: string; sublabel: string }> = [
@@ -51,7 +41,7 @@ const STAGE_CONFIG: Array<{ id: PipelineStageId; num: string; label: string; sub
   { id: 'TERMINAL', num: '7', label: 'OUTCOME', sublabel: 'Resolved / Escalated' }
 ];
 
-export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
+export const SimulationShowcase: React.FC<SimulationShowcaseProps> = ({
   currentScenario,
   currentScenarioId,
   onSelectScenario,
@@ -65,20 +55,9 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
   playbackSpeed,
   onChangeSpeed,
   proofs,
-  onOpenBatchModal,
-  onInjectCustomWebhook,
-  isInjecting,
-  executionMode,
-  onSelectMode,
-  caseIdentity,
-  readiness,
-  isLiveRunning,
-  onBeginLiveRun
+  caseIdentity
 }) => {
-  // Custom webhook fields
-  const [customPaymentId, setCustomPaymentId] = useState('pay_live_3819482');
-  const [customOrderId, setCustomOrderId] = useState('ord_live_5601928');
-  const [customAmount, setCustomAmount] = useState('4500');
+  // Custom webhook fields removed
 
   // Operator feedback notice
   const [operatorNotice, setOperatorNotice] = useState<string | null>(null);
@@ -86,8 +65,8 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
   // Copy notice state
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
-  // Audit view toggle
-  const [showAuditSection, setShowAuditSection] = useState(false);
+  // Audit view toggle removed
+  const showAuditSection = false;
 
   // Expandable accordion state for stage trails
   const [expandedStageIds, setExpandedStageIds] = useState<Record<string, boolean>>({});
@@ -571,109 +550,7 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
 
   return (
     <div className="min-h-screen bg-[#F4F8FC] text-[#0C1A30] flex flex-col font-sans select-none">
-      {/* 1. Topmost Header Bar: Razorpay-inspired visual system, FCE-owned identity */}
-      <header className="bg-white border-b border-[#E2E8F0] px-8 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 font-bold tracking-tight">
-            <span className="text-[#0C6BF5] font-black text-xl leading-none">↗</span>
-            <span className="text-xl font-extrabold text-[#0C1A30] tracking-tight">FCE</span>
-          </div>
-          <div className="h-6 w-[1px] bg-[#E2E8F0]" />
-          <div>
-            <div className="text-xs font-bold text-[#0C1A30] uppercase tracking-wider leading-tight">
-              Financial Control Engine
-            </div>
-            <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wide">
-              V2 Kernel / Deterministic Test Matrix
-            </div>
-          </div>
-        </div>
-
-        {/* Center Nav Links */}
-        <div className="hidden md:flex items-center gap-8 text-xs font-semibold text-slate-600">
-          <button
-            type="button"
-            onClick={onTogglePlay}
-            className="hover:text-[#0C6BF5] transition-colors cursor-pointer"
-          >
-            Run
-          </button>
-          <button
-            type="button"
-            onClick={() => onSelectScenario(currentScenarioId === 'SCENARIO_A' ? 'SCENARIO_B' : 'SCENARIO_A')}
-            className="hover:text-[#0C6BF5] transition-colors cursor-pointer"
-          >
-            Scenarios
-          </button>
-          <button
-            type="button"
-            onClick={onOpenBatchModal}
-            className="hover:text-[#0C6BF5] transition-colors cursor-pointer"
-          >
-            Batch
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAuditSection(!showAuditSection)}
-            className={`hover:text-[#0C6BF5] transition-colors cursor-pointer ${showAuditSection ? 'text-[#0C6BF5] font-bold' : ''}`}
-          >
-            Audit
-          </button>
-        </div>
-
-        {/* Far-Right: Restrained Execution Mode Selector + User Avatar */}
-        <div className="flex items-center gap-5">
-          {/* Execution Mode Segment Selector */}
-          <div className="flex items-center bg-[#F1F5F9] p-0.5 rounded border border-[#E2E8F0] text-[11px] font-semibold">
-            <button
-              type="button"
-              onClick={() => onSelectMode('SIMULATION')}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                executionMode === 'SIMULATION'
-                  ? 'bg-white text-[#0C6BF5] font-bold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              SIMULATION
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectMode('LIVE')}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                executionMode === 'LIVE'
-                  ? 'bg-white text-[#0C6BF5] font-bold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              LIVE
-            </button>
-          </div>
-
-          <div className="text-right hidden sm:block">
-            <div className="text-xs font-bold text-[#0C1A30] leading-tight flex items-center gap-1.5 justify-end">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${
-                executionMode === 'SIMULATION'
-                  ? 'bg-[#00B37E]'
-                  : readiness.backend === 'CONNECTED'
-                    ? 'bg-[#0C6BF5]'
-                    : 'bg-amber-500'
-              }`} />
-              <span>{executionMode === 'SIMULATION' ? 'SIMULATION' : 'LIVE'}</span>
-            </div>
-            <div className="text-[10px] text-slate-400 font-mono">
-              {executionMode === 'SIMULATION'
-                ? 'PRESET SCENARIO'
-                : readiness.backend === 'CONNECTED'
-                  ? 'BACKEND CONNECTED'
-                  : 'BACKEND OFFLINE'}
-            </div>
-          </div>
-
-          <div className="w-8 h-8 rounded-full bg-[#EDF5FF] border border-[#D0E4FF] text-xs font-bold text-[#0C6BF5] flex items-center justify-center">
-            N
-          </div>
-        </div>
-      </header>
+      {/* Removed Header for Simulation Showcase */}
 
       {/* 2. Subheader Controls Bar */}
       <div className="bg-white border-b border-[#E2E8F0] px-8 py-2.5 flex flex-wrap items-center justify-between text-xs gap-4">
@@ -687,7 +564,6 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
             <option value="SCENARIO_B">Scenario B - Missing Provider Evidence (404)</option>
             <option value="SCENARIO_A">Scenario A — Autonomous Refund & Convergence</option>
             <option value="SCENARIO_C">Scenario C — Adversarial Hallucination Catch</option>
-            <option value="LIVE_WEBHOOK">Live Webhook Injection</option>
           </select>
         </div>
 
@@ -736,62 +612,9 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
           </div>
         </div>
 
-        <div>
-          <button
-            type="button"
-            onClick={onOpenBatchModal}
-            className="bg-white hover:bg-slate-50 text-slate-700 hover:text-[#0C1A30] border border-[#D8E2EE] hover:border-slate-300 px-3 py-1.5 rounded text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer"
-          >
-            <span className="text-slate-400 text-sm font-mono">⛶</span>
-            <span>60 Batch Records · 85% Resolved →</span>
-          </button>
-        </div>
       </div>
 
-      {/* Live Webhook Injection Drawer (If Live Mode selected) */}
-      {currentScenarioId === 'LIVE_WEBHOOK' && (
-        <div className="bg-[#FAFBFC] border-b border-slate-200 px-8 py-3 flex flex-wrap gap-4 items-end font-mono text-xs">
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-slate-600 text-[10px] uppercase font-semibold mb-1">Payment ID</label>
-            <input
-              type="text"
-              value={customPaymentId}
-              onChange={e => setCustomPaymentId(e.target.value)}
-              className="w-full bg-white border border-slate-200 px-2.5 py-1 text-slate-900 text-xs focus:outline-none focus:border-blue-500 rounded"
-            />
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-slate-600 text-[10px] uppercase font-semibold mb-1">Order ID</label>
-            <input
-              type="text"
-              value={customOrderId}
-              onChange={e => setCustomOrderId(e.target.value)}
-              className="w-full bg-white border border-slate-200 px-2.5 py-1 text-slate-900 text-xs focus:outline-none focus:border-blue-500 rounded"
-            />
-          </div>
-          <div className="w-32">
-            <label className="block text-slate-600 text-[10px] uppercase font-semibold mb-1">Amount (INR)</label>
-            <input
-              type="number"
-              value={customAmount}
-              onChange={e => setCustomAmount(e.target.value)}
-              className="w-full bg-white border border-slate-200 px-2.5 py-1 text-slate-900 text-xs focus:outline-none focus:border-blue-500 rounded"
-            />
-          </div>
-          <button
-            type="button"
-            disabled={isInjecting}
-            onClick={() => onInjectCustomWebhook({
-              paymentId: customPaymentId,
-              orderId: customOrderId,
-              amount: parseInt(customAmount, 10) || 4500
-            })}
-            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {isInjecting ? 'Injecting...' : 'Inject Webhook →'}
-          </button>
-        </div>
-      )}
+      {/* Removed Live Webhook Drawer */}
 
       {/* 3. Main Investigation Workspace: The Operational Document */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-6 py-8 flex flex-col">
@@ -799,7 +622,8 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
           {/* Case Identity Section */}
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
-              <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-slate-400 mb-1">
+              <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-slate-400 mb-1 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-[#0C6BF5]" />
                 CASE FILE · TRANSACTION INVESTIGATION
               </div>
               <div className="flex items-center gap-3">
@@ -957,130 +781,45 @@ export const ForensicConsole: React.FC<ForensicConsoleProps> = ({
 
                 {/* Title */}
                 <h2 className="text-xl font-bold text-[#0C1A30] font-sans mt-1 tracking-tight">
-                  {executionMode === 'LIVE' ? 'Live Execution Pre-Flight' : 'Queued for Reconciliation'}
+                  Queued for Reconciliation
                 </h2>
 
                 {/* Headline */}
                 <p className="text-xs text-slate-600 mt-1.5 font-sans leading-relaxed">
-                  {executionMode === 'LIVE'
-                    ? 'Pre-flight verification of backend daemon, local Ollama runtime, and provider sandbox.'
-                    : 'Transaction stream ingested from provider webhook and internal order ledger.'}
+                  Transaction stream ingested from provider webhook and internal order ledger.
                 </p>
 
                 {/* Rationale */}
                 <p className="text-xs text-slate-500 mt-1 font-sans">
                   <strong className="text-[#0C1A30] font-semibold">Execution State:</strong>{' '}
-                  {executionMode === 'LIVE'
-                    ? 'Awaiting live run trigger. Real HTTP queries and mutations will be governed by OCC lease safety.'
-                    : 'No control execution has run. Click "▶ RUN" for autonomous loop or "⏭ STEP" to inspect step 01 (DETECT).'}
+                  No control execution has run. Click "▶ RUN" for autonomous loop or "⏭ STEP" to inspect step 01 (DETECT).
                 </p>
 
-                {/* Content: Pre-flight Gate for LIVE vs Clean Inputs for SIMULATION */}
-                {executionMode === 'LIVE' ? (
-                  <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-4">
-                    <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                      SYSTEM READINESS PRE-FLIGHT
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="border border-[#E2E8F0] bg-white p-3 rounded">
-                        <div className="text-[10px] uppercase text-slate-400 font-bold mb-1">Backend API</div>
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${readiness.backend === 'CONNECTED' ? 'bg-[#00B37E]' : 'bg-rose-500'}`} />
-                          <span className="font-mono font-bold text-xs">{readiness.backend}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 font-mono">http://localhost:8000</div>
-                      </div>
-
-                      <div className="border border-[#E2E8F0] bg-white p-3 rounded">
-                        <div className="text-[10px] uppercase text-slate-400 font-bold mb-1">Local Ollama</div>
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${readiness.ollama === 'READY' ? 'bg-[#00B37E]' : 'bg-amber-500'}`} />
-                          <span className="font-mono font-bold text-xs">{readiness.ollama}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 font-mono">qwen3:8b (Ollama)</div>
-                      </div>
-
-                      <div className="border border-[#E2E8F0] bg-white p-3 rounded">
-                        <div className="text-[10px] uppercase text-slate-400 font-bold mb-1">Provider API</div>
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-[#0C6BF5]" />
-                          <span className="font-mono font-bold text-xs">{readiness.provider}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 font-mono">Razorpay Sandbox</div>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={onBeginLiveRun}
-                        disabled={isLiveRunning}
-                        className="bg-[#0C6BF5] hover:bg-[#0A58CA] text-white font-bold text-xs px-4 py-2 rounded transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2"
-                      >
-                        {isLiveRunning ? 'Running Live Pipeline...' : '[ BEGIN LIVE RUN ]'}
-                      </button>
-                      <span className="text-[11px] text-slate-500">
-                        Dispatches live payment event and observes autonomous reconciliation in real time.
-                      </span>
-                    </div>
+                {/* Content: Clean Inputs for SIMULATION */}
+                <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-4">
+                  <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                    PAYLOAD INGESTION (MOCK)
                   </div>
-                ) : (
-                  <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs font-sans">
-                      <div>
-                        <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-3">
-                          INPUT A: INTERNAL ORDER LEDGER
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                            <span className="text-slate-500">Order ID:</span>
-                            <span className="font-medium text-slate-700">{caseIdentity.orderId}</span>
-                          </div>
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-slate-500">Amount:</span>
-                            <span className="font-bold text-[#0C1A30]">₹{caseIdentity.amount.toLocaleString()}.00 {caseIdentity.currency}</span>
-                          </div>
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                            <span className="text-slate-500">Source:</span>
-                            <span className="text-slate-700">merchant_order_ledger</span>
-                          </div>
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-slate-500">Recorded Status:</span>
-                            <span className="font-mono text-slate-600">SETTLED</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-3">
-                          INPUT B: INCOMING PROVIDER WEBHOOK
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                            <span className="text-slate-500">Payment ID:</span>
-                            <span className="font-medium text-slate-700">{caseIdentity.paymentId}</span>
-                          </div>
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-slate-500">Reported Amount:</span>
-                            <span className="font-bold text-[#0C1A30]">₹{caseIdentity.amount.toLocaleString()}.00 {caseIdentity.currency}</span>
-                          </div>
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                            <span className="text-slate-500">Provider:</span>
-                            <span className="text-slate-700">razorpay_webhook</span>
-                          </div>
-                          <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-slate-500">Reported Status:</span>
-                            <span className="font-mono text-slate-600">PENDING</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 p-3 bg-slate-50 border border-slate-200 rounded text-xs text-slate-600">
-                      ℹ Deterministic reconciliation pending. Click <strong>▶ RUN</strong> to execute the autonomous control loop, or <strong>⏭ STEP</strong> to inspect step 01 (DETECT).
-                    </div>
+                  <div className="bg-[#0C1A30] rounded p-4 overflow-x-auto text-slate-300">
+                    <pre className="font-mono text-[11px] leading-relaxed">
+{`{
+  "event": "payment.captured",
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "${caseIdentity.paymentId}",
+        "amount": ${caseIdentity.amount},
+        "currency": "${caseIdentity.currency}",
+        "status": "captured",
+        "order_id": "${caseIdentity.orderId}",
+        "method": "upi"
+      }
+    }
+  }
+}`}
+                    </pre>
                   </div>
-                )}
+                </div>
 
                 {/* 7-stage pending overview with Accordion */}
                 <div className="mt-6 border-t border-slate-100 pt-3">
