@@ -1,9 +1,10 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Star, 
   GitFork, 
-  Copy, 
+  Copy,
+  Check,
   ChevronRight, 
   ChevronDown, 
   Folder, 
@@ -14,8 +15,10 @@ import {
 } from 'lucide-react';
 
 export const OpenSourceSection: React.FC = () => {
+  const [isCopied, setIsCopied] = useState(false);
+
   return (
-    <section className="w-full relative z-10 pt-0 pb-32 flex flex-col items-center justify-center overflow-hidden">
+    <section id="open-source" className="w-full relative z-10 pt-0 pb-32 flex flex-col items-center justify-center overflow-hidden scroll-mt-32">
       
       {/* Background Ambience */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[600px] bg-[radial-gradient(ellipse_50%_50%_at_50%_50%,rgba(59,130,246,0.08),transparent_100%)] pointer-events-none" />
@@ -39,18 +42,45 @@ export const OpenSourceSection: React.FC = () => {
               className="group relative inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-black font-semibold rounded-lg overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-[0_0_40px_rgba(255,255,255,0.3)]"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-zinc-200 to-white opacity-0 group-hover:opacity-100 transition-opacity" />
-              <Star className="w-5 h-5 relative z-10 fill-current" />
+              <Star className="w-5 h-5 relative z-10 text-yellow-400 fill-yellow-400" />
               <span className="relative z-10">Star on GitHub</span>
             </a>
             
             <button 
-              className="group inline-flex items-center justify-center gap-2 px-6 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium rounded-lg transition-all duration-300"
+              className="group relative flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium rounded-lg transition-all duration-300 w-40 h-[54px] overflow-hidden"
               onClick={() => {
                 navigator.clipboard.writeText("git clone https://github.com/ntbnaren7/financial-control-engine.git");
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
               }}
             >
-              <Copy className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
-              <span className="font-mono text-sm">git clone</span>
+              <AnimatePresence mode="wait">
+                {isCopied ? (
+                  <motion.div
+                    key="copied"
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -15 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="flex items-center gap-2 absolute inset-0 justify-center"
+                  >
+                    <Check className="w-4 h-4 text-green-400" />
+                    <span className="font-mono text-sm text-green-400">Copied!</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="clone"
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -15 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="flex items-center gap-2 absolute inset-0 justify-center"
+                  >
+                    <Copy className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+                    <span className="font-mono text-sm">git clone</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </button>
           </div>
         </div>

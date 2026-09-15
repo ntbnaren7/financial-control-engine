@@ -11,6 +11,7 @@ import type {
 import { FlickeringGrid } from './components/FlickeringGrid';
 import { PipelineIdeView } from './components/PipelineIdeView';
 import { OpenSourceSection } from './components/OpenSourceSection';
+import { TerminalFooter } from './components/TerminalFooter';
 
 interface LandingPageProps {
   currentScenario: ScenarioDefinition;
@@ -39,7 +40,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
     <div className="min-h-screen text-white font-sans selection:bg-blue-500/30 selection:text-white relative bg-[#000000]">
       
       {/* Navbar: Floating Elements */}
-      <nav className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between w-[95%] max-w-7xl">
+      <nav className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between w-[95%] max-w-7xl">
         {/* Left: Logo */}
         <div className="flex items-center gap-2 font-bold tracking-tight">
           <span className="text-white text-xl font-bold tracking-tight">Invariant</span>
@@ -49,7 +50,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
         <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center bg-zinc-900/60 backdrop-blur-xl border border-white/10 rounded-full p-1.5">
           <a href="#product" className="text-black bg-white rounded-full px-5 py-2 text-sm font-semibold transition-all">Platform</a>
           <a href="#how-it-works" className="text-zinc-300 hover:text-white rounded-full px-5 py-2 text-sm font-medium transition-colors">Architecture</a>
-          <a href="#results" className="text-zinc-300 hover:text-white rounded-full px-5 py-2 text-sm font-medium transition-colors">Telemetry</a>
+          <a href="#open-source" className="text-zinc-300 hover:text-white rounded-full px-5 py-2 text-sm font-medium transition-colors">Open Source</a>
         </div>
 
         {/* Right: CTA */}
@@ -121,19 +122,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
 
       <PipelineIdeView />
       <OpenSourceSection />
-
-      {/* Footer */}
-      <footer className="border-t border-white/10 bg-black py-12 relative z-10">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-bold tracking-tight text-white">Invariant</span>
-            <span className="text-zinc-500 text-sm font-medium ml-2">| Razorpay Buildathon 2026</span>
-          </div>
-          <div className="font-mono text-[11px] tracking-widest uppercase text-zinc-500">
-            The control plane between state and action
-          </div>
-        </div>
-      </footer>
+      <TerminalFooter />
     </div>
   );
 };
