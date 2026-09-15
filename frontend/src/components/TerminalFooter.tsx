@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Terminal } from 'lucide-react';
+import { FlickeringGrid } from './FlickeringGrid';
 
 export const TerminalFooter: React.FC = () => {
   const [cursorBlink, setCursorBlink] = useState(true);
@@ -12,26 +13,41 @@ export const TerminalFooter: React.FC = () => {
   }, []);
 
   return (
-    <footer className="w-full bg-[#050505] border-t border-white/10 pt-16 pb-12 text-zinc-400 font-mono text-sm relative z-10">
-      <div className="max-w-[1200px] mx-auto px-6 md:px-8">
+    <footer className="w-full pt-16 pb-12 text-zinc-400 font-mono text-sm relative z-10 overflow-hidden border-t border-white/5">
+      
+      {/* Background Grid */}
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-40">
+        <FlickeringGrid 
+          squareSize={4}
+          gridGap={6}
+          color="rgba(255, 255, 255, 0.4)"
+          maxOpacity={0.15}
+          flickerChance={0.1}
+        />
+      </div>
+
+      {/* Smooth top fade transition from Open Source section */}
+      <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black to-transparent z-10 pointer-events-none" />
+
+      {/* Content */}
+      <div className="max-w-[1200px] mx-auto px-6 md:px-8 relative z-20">
         
-        {/* Terminal Header */}
-        <div className="flex items-center gap-2 mb-10 text-zinc-500 border-b border-white/10 pb-4">
-          <Terminal className="w-4 h-4" />
-          <span>invariant-sys --help</span>
-        </div>
+
 
         {/* Command Output Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-x-8 gap-y-12 mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-12 mb-16">
           
-          <div className="md:col-span-1">
+          <div>
             <h3 className="text-white font-bold mb-4 tracking-wider">NAME</h3>
             <p className="text-zinc-500 leading-relaxed">
-              <span className="text-zinc-300">invariant</span> - The control plane between non-deterministic AI intent and deterministic enterprise truth.
+              <span className="text-zinc-300">invariant</span> - The control plane<br />
+              between non-deterministic<br />
+              AI intent and deterministic<br />
+              enterprise truth.
             </p>
           </div>
 
-          <div className="md:col-span-1">
+          <div className="md:justify-self-center">
             <h3 className="text-white font-bold mb-4 tracking-wider">COMMANDS</h3>
             <ul className="space-y-3 text-zinc-500">
               <li><a href="#how-it-works" className="hover:text-white transition-colors flex gap-2"><span className="text-zinc-600">$</span> man architecture</a></li>
@@ -40,38 +56,24 @@ export const TerminalFooter: React.FC = () => {
             </ul>
           </div>
 
-          <div className="md:col-span-1">
+          <div className="md:justify-self-end">
             <h3 className="text-white font-bold mb-4 tracking-wider">RESOURCES</h3>
             <ul className="space-y-3 text-zinc-500">
               <li><a href="https://github.com/ntbnaren7/financial-control-engine" className="hover:text-white transition-colors flex gap-2"><span className="text-zinc-600">$</span> open repository</a></li>
-              <li><a href="#" className="hover:text-white transition-colors flex gap-2"><span className="text-zinc-600">$</span> cat docs.md</a></li>
-              <li><a href="https://linkedin.com/in/ntbnaren7" target="_blank" rel="noreferrer" className="hover:text-white transition-colors flex gap-2"><span className="text-zinc-600">$</span> ping support</a></li>
+              <li><a href="https://github.com/ntbnaren7/financial-control-engine#readme" target="_blank" rel="noreferrer" className="hover:text-white transition-colors flex gap-2"><span className="text-zinc-600">$</span> cat docs.md</a></li>
+              <li><a href="https://www.linkedin.com/in/naren-tech/" target="_blank" rel="noreferrer" className="hover:text-white transition-colors flex gap-2"><span className="text-zinc-600">$</span> ping support</a></li>
             </ul>
           </div>
-
-          <div className="md:col-span-1">
-            <h3 className="text-white font-bold mb-4 tracking-wider">SYSTEM</h3>
-            <ul className="space-y-3 text-zinc-500">
-              <li className="flex justify-between"><span>VERSION</span> <span className="text-zinc-300">v1.0.0-rc</span></li>
-              <li className="flex justify-between"><span>BUILD</span> <span className="text-zinc-300">2026.09.15</span></li>
-              <li className="flex justify-between"><span>UPTIME</span> <span className="text-zinc-300">99.999%</span></li>
-            </ul>
-          </div>
-
         </div>
 
         {/* Active Prompt */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-zinc-300 font-mono text-sm mt-16 pt-8 border-t border-white/10">
-          <div className="flex items-center gap-2">
-            <span className="text-green-400">invariant-engine@razorpay</span>
-            <span className="text-zinc-500">:</span>
-            <span className="text-blue-400">~</span>
-            <span className="text-zinc-500">$</span>
-            <span className={`w-2.5 h-5 bg-white transition-opacity duration-75 ${cursorBlink ? 'opacity-100' : 'opacity-0'}`} />
+          <div className="flex items-center gap-2 text-green-400">
+            Built for Tracks 3 & 4 of the Razorpay Buildathon.
           </div>
           
-          <div className="text-zinc-600 text-xs">
-            &copy; {new Date().getFullYear()} Razorpay Buildathon. System active.
+          <div className="text-zinc-600 text-xs sm:text-right">
+            Copyright &copy; Naren A. MIT License.
           </div>
         </div>
 

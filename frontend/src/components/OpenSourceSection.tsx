@@ -18,7 +18,7 @@ export const OpenSourceSection: React.FC = () => {
   const [isCopied, setIsCopied] = useState(false);
 
   return (
-    <section id="open-source" className="w-full relative z-10 pt-0 pb-32 flex flex-col items-center justify-center overflow-hidden scroll-mt-32">
+    <section id="open-source" className="w-full relative z-10 pt-0 pb-16 flex flex-col items-center justify-center overflow-hidden scroll-mt-32">
       
       {/* Background Ambience */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[600px] bg-[radial-gradient(ellipse_50%_50%_at_50%_50%,rgba(59,130,246,0.08),transparent_100%)] pointer-events-none" />
@@ -39,7 +39,7 @@ export const OpenSourceSection: React.FC = () => {
               href="https://github.com/ntbnaren7/financial-control-engine" 
               target="_blank" 
               rel="noreferrer"
-              className="group relative inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-black font-semibold rounded-lg overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-[0_0_40px_rgba(255,255,255,0.3)]"
+              className="group relative inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-black font-semibold rounded-lg overflow-hidden transition-all duration-300 hover:shadow-[0_0_40px_rgba(255,255,255,0.3)]"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-zinc-200 to-white opacity-0 group-hover:opacity-100 transition-opacity" />
               <Star className="w-5 h-5 relative z-10 text-yellow-400 fill-yellow-400" />
@@ -110,7 +110,7 @@ export const OpenSourceSection: React.FC = () => {
           </div>
 
           {/* IDE Content Area */}
-          <div className="flex h-[500px]">
+          <div className="flex h-[700px]">
             
             {/* Sidebar (File Explorer) - Hidden on Mobile */}
             <div className="hidden md:flex flex-col w-64 border-r border-white/10 bg-[#09090b]">

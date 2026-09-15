@@ -55,7 +55,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
 
         {/* Right: CTA */}
         <a 
-          href="https://github.com" 
+          href="https://github.com/ntbnaren7/financial-control-engine#readme" 
           target="_blank" 
           rel="noreferrer"
           className="flex items-center bg-zinc-900 hover:bg-zinc-800 text-white border border-white/10 px-5 py-2.5 rounded-md text-sm font-medium transition-all shadow-sm"
