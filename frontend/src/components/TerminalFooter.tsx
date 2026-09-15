@@ -1,16 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Terminal } from 'lucide-react';
+import React from 'react';
 import { FlickeringGrid } from './FlickeringGrid';
 
 export const TerminalFooter: React.FC = () => {
-  const [cursorBlink, setCursorBlink] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCursorBlink(b => !b);
-    }, 530);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <footer className="w-full pt-16 pb-12 text-zinc-400 font-mono text-sm relative z-10 overflow-hidden border-t border-white/5">

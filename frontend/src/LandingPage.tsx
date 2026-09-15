@@ -43,7 +43,13 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
       <nav className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between w-[95%] max-w-7xl">
         {/* Left: Logo */}
         <div className="flex items-center gap-2 font-bold tracking-tight">
-          <span className="text-white text-xl font-bold tracking-tight">Invariant</span>
+          <a 
+            href="#" 
+            onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} 
+            className="text-white text-xl font-bold tracking-tight cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            Invariant
+          </a>
         </div>
 
         {/* Center: Glassmorphic Pill */}
