@@ -25,8 +25,6 @@ export const UnboundedEngineCanvas: React.FC<UnboundedEngineCanvasProps> = ({
   currentScenarioId,
   onSelectScenario,
   currentStageIndex,
-  selectedStageId,
-  onSelectStage,
   isPlaying,
   onTogglePlay,
   onStepForward,
@@ -194,7 +192,7 @@ export const UnboundedEngineCanvas: React.FC<UnboundedEngineCanvasProps> = ({
   }, [currentStageIndex]);
 
   return (
-    <div className="relative w-full h-[600px] mt-12 mb-24 rounded-2xl border border-white/10 bg-[#050505] overflow-hidden shadow-2xl">
+    <div className="relative w-full h-[600px] mt-12 mb-0 rounded-2xl border border-white/10 bg-[#050505] overflow-hidden shadow-2xl">
       
       {/* Premium canvas dot grid with radial fade mask */}
       <div className="absolute inset-0 canvas-dot-grid pointer-events-none" />

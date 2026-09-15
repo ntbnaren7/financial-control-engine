@@ -9,6 +9,7 @@ import type {
 } from './types';
 
 import { FlickeringGrid } from './components/FlickeringGrid';
+import { PipelineIdeView } from './components/PipelineIdeView';
 
 interface LandingPageProps {
   currentScenario: ScenarioDefinition;
@@ -62,7 +63,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
       </nav>
 
       {/* Hero Region */}
-      <section id="product" className="pt-40 pb-20 relative z-10 flex flex-col items-center">
+      <section id="product" className="pt-40 pb-0 relative z-10 flex flex-col items-center">
         
         {/* Flickering Grid Background */}
         <div 
@@ -116,6 +117,8 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
           <UnboundedEngineCanvas {...props} />
         </div>
       </section>
+
+      <PipelineIdeView />
 
       {/* Footer */}
       <footer className="border-t border-white/10 bg-black py-12 relative z-10">
