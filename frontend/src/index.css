@@ -1,48 +1,74 @@
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Geist Variable', 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    background-color: #000000;
+    color: #ffffff;
   }
 
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Geist Variable', 'Inter', system-ui, sans-serif;
     scroll-behavior: smooth;
+    background-color: #000000;
+  }
+
+  /* Override tailwind default mono with Geist Mono for telemetry */
+  :root {
+    --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 }
 
 @layer utilities {
-  .hero-grid {
-    background-size: 60px 60px;
-    background-image: 
-      linear-gradient(to right, rgba(255, 255, 255, 0.15) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.15) 1px, transparent 1px);
-    mask-image: radial-gradient(ellipse at 50% 50%, black, transparent 80%);
-    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, black, transparent 80%);
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Vercel-style sub-pixel dot matrix */
+  .canvas-dot-grid {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 50%, black 40%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 50%, black 40%, transparent 100%);
+  }
+
+  /* Obsidian node style with inner specular highlight */
+  .node-milled-border {
+    background-color: rgba(9, 9, 11, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+  }
+
+  /* Clean cable glow filter for dark mode */
+  .glow-cable {
+    filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.6));
   }
 }
 
-/* Custom scrollbars for forensic financial control console */
+/* Custom minimal scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #010A1C;
+  background: #000000;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1E293B;
+  background: #27272a;
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #3f3f46;
 }

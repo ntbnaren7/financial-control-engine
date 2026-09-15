@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { Zap } from 'lucide-react';
+import React from 'react';
+import { motion } from 'framer-motion';
+import { Database, CreditCard, ShieldCheck, AlertCircle } from 'lucide-react';
 import type {
   ScenarioDefinition,
   ScenarioPresetId,
   PipelineStageId,
-  ProofItem,
-  StageExecutionPayload
+  ProofItem
 } from '../types';
 
 interface SimulationShowcaseProps {
@@ -22,7 +22,6 @@ interface SimulationShowcaseProps {
   playbackSpeed: number;
   onChangeSpeed: (speed: number) => void;
   proofs: ProofItem[];
-  // Core state
   caseIdentity: {
     paymentId: string;
     orderId: string;
@@ -31,1107 +30,268 @@ interface SimulationShowcaseProps {
   };
 }
 
-const STAGE_CONFIG: Array<{ id: PipelineStageId; num: string; label: string; sublabel: string }> = [
-  { id: 'DETECT', num: '1', label: 'DETECT', sublabel: 'Ingest / Reconcile' },
-  { id: 'INVESTIGATE', num: '2', label: 'INVESTIGATE', sublabel: 'A3 Reasoner' },
-  { id: 'VERIFY', num: '3', label: 'VERIFY', sublabel: 'A4 Verifier' },
-  { id: 'DECIDE', num: '4', label: 'DECIDE', sublabel: 'Policy & Gov' },
-  { id: 'ACT', num: '5', label: 'ACT', sublabel: 'OCC Actuator' },
-  { id: 'REOBSERVE', num: '6', label: 'RE-OBSERVE', sublabel: 'Fresh State' },
-  { id: 'TERMINAL', num: '7', label: 'OUTCOME', sublabel: 'Resolved / Escalated' }
-];
+// Background Dot Grid
+const DotGrid = () => (
+  <div 
+    className="absolute inset-0 pointer-events-none z-0" 
+    style={{
+      backgroundImage: 'radial-gradient(#CBD5E1 1px, transparent 1px)',
+      backgroundSize: '24px 24px',
+      opacity: 0.5
+    }} 
+  />
+);
 
 export const SimulationShowcase: React.FC<SimulationShowcaseProps> = ({
   currentScenario,
   currentScenarioId,
   onSelectScenario,
   currentStageIndex,
-  selectedStageId,
-  onSelectStage,
   isPlaying,
   onTogglePlay,
   onStepForward,
   onReset,
-  playbackSpeed,
-  onChangeSpeed,
-  proofs,
-  caseIdentity
 }) => {
-  // Custom webhook fields removed
+  const detectStage = currentScenario.stages['DETECT']?.detectData;
+  const expected = detectStage?.expected || { amount: 0, status: 'Missing entry', currency: 'INR' };
+  const observed = detectStage?.observed || { amount: 2400, status: 'Success', currency: 'INR' };
+  const terminalState = currentScenario.terminalState;
 
-  // Operator feedback notice
-  const [operatorNotice, setOperatorNotice] = useState<string | null>(null);
+  const formatAmt = (amt: number) => `₹${amt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-  // Copy notice state
-  const [copiedText, setCopiedText] = useState<string | null>(null);
-
-  // Audit view toggle removed
-  const showAuditSection = false;
-
-  // Expandable accordion state for stage trails
-  const [expandedStageIds, setExpandedStageIds] = useState<Record<string, boolean>>({});
-
-  const toggleStageExpanded = (stageId: string) => {
-    setExpandedStageIds(prev => ({
-      ...prev,
-      [stageId]: !prev[stageId]
-    }));
-  };
-
-  const expandAllStages = () => {
-    const next: Record<string, boolean> = {};
-    STAGE_CONFIG.forEach(s => {
-      next[s.id] = true;
-    });
-    setExpandedStageIds(next);
-  };
-
-  const collapseAllStages = () => {
-    setExpandedStageIds({});
-  };
-
-  const areAllStagesExpanded = STAGE_CONFIG.every(s => !!expandedStageIds[s.id]);
-
-  const effectiveStageId: PipelineStageId = selectedStageId === 'READY' ? 'DETECT' : selectedStageId;
-  const activeStagePayload = currentScenario.stages[effectiveStageId];
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard?.writeText(text);
-    setCopiedText(text);
-    setTimeout(() => setCopiedText(null), 1500);
-  };
-
-  // Concise single-line summary when a stage is in the collapsed past trail
-  const getStageTrailSummary = (stageId: PipelineStageId) => {
-    switch (stageId) {
-      case 'DETECT':
-        return `Expected ${currentScenario.expectedStatus} ≠ Observed ${currentScenario.observedStatus} · ${currentScenario.discrepancyReason} (₹${currentScenario.amount.toLocaleString()})`;
-      case 'INVESTIGATE':
-        return `4 bounded records assembled · Verification Intent: READ_PAYMENT_STATE · Authority: NONE`;
-      case 'VERIFY':
-        if (currentScenarioId === 'SCENARIO_B') {
-          return `Razorpay returned HTTP 404 NOT FOUND · Truth unestablished · Actuation prohibited`;
-        }
-        if (currentScenarioId === 'SCENARIO_C') {
-          return `D4 Invariant Violation: ev_hallucinated_fabricated_id_99999 NOT FOUND · Query blocked`;
-        }
-        return `D4 referential containment valid · Razorpay GET /payments/${currentScenario.paymentId} returned 200 OK (captured: true)`;
-      case 'DECIDE':
-        if (currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C') {
-          return `Governance containment: Mutation DENIED · Policy matched: ESCALATE`;
-        }
-        return `Policy: REFUND_PAYMENT · Kill switch: RUNNING · Budget quota: ₹${currentScenario.amount.toLocaleString()} authorized`;
-      case 'ACT':
-        if (currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C') {
-          return `Actuation skipped · Zero mutations dispatched to external provider`;
-        }
-        return `OCC lease v1 → v2 acquired · Idempotency key persisted · Refund rfnd_019482710398 dispatched`;
-      case 'REOBSERVE':
-        if (currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C') {
-          return `Re-observation skipped`;
-        }
-        return `Fresh provider state re-queried: refunded · Reconciliation against expectation: MATCH · Converged`;
-      case 'TERMINAL':
-        return currentScenario.terminalState === 'RESOLVED'
-          ? `Terminal state: RESOLVED · Closed-loop control completed without human intervention`
-          : `Terminal state: ${currentScenario.terminalState} · Honest safety escalation preserved`;
-      default:
-        return '';
-    }
-  };
-
-  const getStagePendingSummary = (stageId: PipelineStageId) => {
-    switch (stageId) {
-      case 'INVESTIGATE': return 'Awaiting bounded context assembly and A3 causal hypothesis';
-      case 'VERIFY': return 'Awaiting D4 containment validation and deterministic gateway query';
-      case 'DECIDE': return 'Awaiting recovery policy match and governance budget allowance';
-      case 'ACT': return 'Awaiting OCC atomic lease and idempotent mutation dispatch';
-      case 'REOBSERVE': return 'Awaiting post-action provider state re-observation';
-      case 'TERMINAL': return 'Awaiting closed-loop convergence';
-      default: return 'Pending';
-    }
-  };
-
-  // Reusable Stage-Specific Forensic Evidence Renderer
-  const renderStageForensicContent = (stageId: PipelineStageId, stagePayload?: StageExecutionPayload) => {
-    if (!stagePayload) return null;
-
-    return (
-      <>
-        {/* 1. DETECT: Expected vs Observed Comparison */}
-        {stageId === 'DETECT' && stagePayload.detectData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-sans">
-              {/* Expected Column */}
-              <div>
-                <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2.5">
-                  EXPECTED (Internal Ledger)
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span className="text-slate-500">Ledger Status:</span>
-                    <span className="font-bold text-[#00B37E] font-sans">{stagePayload.detectData.expected.status}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                    <span className="text-slate-500 font-sans">Amount:</span>
-                    <span className="font-semibold text-[#0C1A30]">
-                      ₹{stagePayload.detectData.expected.amount.toLocaleString()}.00 {stagePayload.detectData.expected.currency}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span className="text-slate-500">Source:</span>
-                    <span className="text-slate-700 font-mono text-[11px]">{stagePayload.detectData.expected.source}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Order ID:</span>
-                    <span className="text-slate-700 font-mono">{stagePayload.detectData.expected.id || currentScenario.orderId}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Observed Column */}
-              <div>
-                <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2.5">
-                  OBSERVED (Provider Webhook)
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span className="text-slate-500">Webhook Status:</span>
-                    <span className={`font-bold font-sans ${
-                      stagePayload.detectData.observed.status === 'UNKNOWN' ? 'text-rose-600' : 'text-amber-700'
-                    }`}>
-                      {stagePayload.detectData.observed.status}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5 font-mono">
-                    <span className="text-slate-500 font-sans">Amount:</span>
-                    <span className="font-semibold text-[#0C1A30]">
-                      ₹{stagePayload.detectData.observed.amount.toLocaleString()} {stagePayload.detectData.observed.currency}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span className="text-slate-500">Provider:</span>
-                    <span className="text-slate-700 font-mono text-[11px]">{stagePayload.detectData.observed.provider}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Payment ID:</span>
-                    <span className="text-slate-700 font-mono">{stagePayload.detectData.observed.id || '—'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Discrepancy Note */}
-            <div className="mt-3.5 pt-3 border-t border-[#E2E8F0] text-xs text-slate-600 flex items-start gap-2 font-sans">
-              <span className="text-amber-600 font-bold shrink-0">ⓘ</span>
-              <span><strong className="text-[#0C1A30]">Discrepancy:</strong> {stagePayload.detectData.differenceSummary}</span>
-            </div>
-          </div>
-        )}
-
-        {/* 2. INVESTIGATE: Bounded Context + AI Reasoning Transition */}
-        {stageId === 'INVESTIGATE' && stagePayload.investigateData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4 space-y-4">
-            {/* Bounded Evidence List */}
-            <div>
-              <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center justify-between pb-1.5 border-b border-slate-100">
-                <span>BOUNDED EVIDENCE CONTEXT ({stagePayload.investigateData.boundedEvidence.length} RECORDS)</span>
-                <span className="text-slate-400 font-mono text-[10px]">SHA256 Cryptographic Substrate</span>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {stagePayload.investigateData.boundedEvidence.map((ev: any) => (
-                  <div key={ev.id} className="py-2 flex items-center justify-between gap-4 text-xs">
-                    <div className="truncate">
-                      <span className="text-[#0C6BF5] font-mono font-bold">{ev.id}</span>
-                      <span className="text-slate-700 font-sans ml-3">{ev.summary}</span>
-                    </div>
-                    <span className="text-slate-400 text-[10px] shrink-0 font-mono">{ev.payloadHash?.slice(0, 16)}...</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Proposed Causal Hypothesis */}
-            <div className="pt-3 border-t border-[#E2E8F0]">
-              <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-slate-400 mb-1">
-                Causal Hypothesis (A3 Reasoner)
-              </div>
-              <div className="text-slate-700 font-sans text-xs leading-relaxed">
-                "{stagePayload.investigateData.llmOutput.hypothesis}"
-              </div>
-              <div className="flex flex-wrap gap-6 pt-2.5 mt-2 border-t border-slate-100 text-[11px] font-sans text-slate-500">
-                <div>
-                  <span className="text-slate-400 uppercase text-[10px]">Verification Intent:</span>{' '}
-                  <span className="text-slate-800 font-mono font-semibold">{stagePayload.investigateData.llmOutput.verificationIntent}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase text-[10px]">Target ID:</span>{' '}
-                  <span className="text-slate-800 font-mono font-semibold">{stagePayload.investigateData.llmOutput.targetId}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase text-[10px]">Authority:</span>{' '}
-                  <span className="text-rose-700 font-semibold">NONE (0% · Read-Only)</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 3. VERIFY: D4 Validation + Provider Verification */}
-        {stageId === 'VERIFY' && stagePayload.verifyData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4 space-y-4">
-            {/* Containment Halt Status Strip if Scenario B */}
-            {currentScenarioId === 'SCENARIO_B' && (
-              <div className="border-l-2 border-rose-500 pl-3 py-1 font-sans text-xs">
-                <div className="text-[10px] font-bold uppercase text-rose-700 tracking-wider">
-                  Containment Halt · Truth Not Established
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-rose-900 font-mono mt-0.5 flex-wrap">
-                  <span className="font-semibold">404 NOT FOUND</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-semibold">TRUTH NOT ESTABLISHED</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-semibold">MUTATION BLOCKED</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-bold text-rose-800">ESCALATED_MISSING_EVIDENCE</span>
-                </div>
-              </div>
-            )}
-
-            {/* Containment Halt Status Strip if Scenario C */}
-            {currentScenarioId === 'SCENARIO_C' && (
-              <div className="border-l-2 border-rose-500 pl-3 py-1 font-sans text-xs">
-                <div className="text-[10px] font-bold uppercase text-rose-700 tracking-wider">
-                  D4 Invariant Violation · Adversarial Hallucination Caught
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-rose-900 font-mono mt-0.5 flex-wrap">
-                  <span className="font-semibold">FABRICATED EVIDENCE ID</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-semibold">D4 CONTAINMENT VIOLATION</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-semibold">PROVIDER ACCESS BLOCKED</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-semibold">MUTATION BLOCKED</span>
-                  <span className="text-rose-400">→</span>
-                  <span className="font-bold text-rose-800">ESCALATED_UNKNOWN</span>
-                </div>
-              </div>
-            )}
-
-            {/* D4 Deterministic Output Validation */}
-            <div>
-              <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider flex items-center justify-between pb-2 border-b border-slate-100">
-                <span>D4 DETERMINISTIC OUTPUT VALIDATION</span>
-                <span className={`font-sans font-bold text-xs ${stagePayload.verifyData.d4Validation.passed ? 'text-[#00B37E]' : 'text-rose-700'}`}>
-                  {stagePayload.verifyData.d4Validation.passed ? 'PASSED ✓' : 'FAILED ✕'}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2.5 text-xs font-sans">
-                <div>
-                  <span className="text-slate-500">Evidence Containment:</span>{' '}
-                  <strong className={stagePayload.verifyData.d4Validation.evidenceContainmentValid ? 'text-[#00B37E]' : 'text-rose-700'}>
-                    {stagePayload.verifyData.d4Validation.evidenceContainmentValid ? 'VALID' : 'VIOLATION'}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-slate-500">Intent Schema:</span>{' '}
-                  <strong className="text-[#00B37E]">VALID</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500">Mutation Authority:</span>{' '}
-                  <strong className="text-rose-700">DENIED · READ-ONLY</strong>
-                </div>
-              </div>
-              {stagePayload.verifyData.d4Validation.rejectionReason && (
-                <div className="text-rose-700 text-xs font-sans pt-2 mt-2 border-t border-rose-100">
-                  {stagePayload.verifyData.d4Validation.rejectionReason}
-                </div>
-              )}
-            </div>
-
-            {/* Deterministic Verifier · Razorpay Developer Terminal Block */}
-            <div className="pt-3 border-t border-[#E2E8F0]">
-              <div className="text-[10px] font-sans font-bold uppercase text-slate-400 tracking-wider pb-2">
-                DETERMINISTIC VERIFIER · RAZORPAY API
-              </div>
-              <div className="bg-[#0B1528] border border-[#1E2E4A] rounded overflow-hidden font-mono text-xs">
-                {(() => {
-                  const rawEndpoint = stagePayload.verifyData.providerVerification.endpoint || '';
-                  const cleanPath = rawEndpoint.replace(/^GET\s+/i, '').replace(/^\/+/, '');
-                  return (
-                    <>
-                      <div className="bg-[#0F1D33] px-3.5 py-2 border-b border-[#1E2E4A] flex items-center justify-between text-[11px]">
-                        <div className="flex items-center gap-2">
-                          <span className="px-1.5 py-0.5 rounded bg-[#1A2C4B] text-[#38BDF8] font-bold text-[10px]">
-                            cURL
-                          </span>
-                          <span className="text-slate-300 font-semibold truncate">
-                            GET /{cleanPath}
-                          </span>
-                        </div>
-                        <span className={`font-mono font-bold text-[11px] px-2 py-0.5 rounded ${
-                          stagePayload.verifyData.providerVerification.captured
-                            ? 'bg-[#00B37E]/20 text-[#00B37E]'
-                            : 'bg-rose-500/20 text-rose-400'
-                        }`}>
-                          HTTP {stagePayload.verifyData.providerVerification.responseStatus || 'BLOCKED'} · {stagePayload.verifyData.providerVerification.providerPaymentStatus}
-                        </span>
-                      </div>
-                      <div className="p-3 text-[11px] space-y-1 text-slate-300">
-                        <div className="text-slate-400">
-                          <span className="text-[#38BDF8]">GET</span> https://api.razorpay.com/{cleanPath}
-                        </div>
-                        <div className="text-slate-400 text-[10px]">
-                          Host: <span className="text-slate-200">api.razorpay.com</span> · Authorization: <span className="text-slate-200">Basic [RZP_KEY:RZP_SECRET]</span>
-                        </div>
-                        {stagePayload.verifyData.providerVerification.error ? (
-                          <div className="text-rose-400 font-semibold pt-1.5 border-t border-[#1E2E4A] text-xs">
-                            ✕ Provider Error: {stagePayload.verifyData.providerVerification.error}
-                          </div>
-                        ) : (
-                          <div className="text-[#34D399] font-semibold pt-1.5 border-t border-[#1E2E4A] text-xs">
-                            ✓ Provider response: status="{stagePayload.verifyData.providerVerification.providerPaymentStatus}" · captured={String(stagePayload.verifyData.providerVerification.captured)}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 4. DECIDE: Governance Gate & Recovery Policy */}
-        {stageId === 'DECIDE' && stagePayload.decideData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4 space-y-4 font-sans text-xs">
-            <div>
-              <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100 flex items-center justify-between">
-                <span>POLICY EVALUATION</span>
-                <span className="text-[#0C6BF5] font-mono font-bold text-xs">{stagePayload.decideData.policyAction}</span>
-              </div>
-              <div className="pt-2 text-slate-700 text-xs leading-relaxed">
-                {stagePayload.decideData.decisionReason}
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-100">
-              <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5">
-                GOVERNANCE GATE CHECKS
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
-                <div>
-                  <span className="text-slate-500">Kill Switch:</span>{' '}
-                  <strong className="text-[#00B37E] font-bold">{stagePayload.decideData.governance.killSwitchState}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500">Action Budget:</span>{' '}
-                  <strong className="text-[#0C1A30] font-mono font-bold">
-                    ₹{stagePayload.decideData.governance.budgetUsed?.toLocaleString()} / ₹{stagePayload.decideData.governance.budgetLimit?.toLocaleString()}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 5. ACT: Idempotent Actuation */}
-        {stageId === 'ACT' && stagePayload.actData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-3">
-            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
-              IDEMPOTENT ACTUATION
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                <span className="text-slate-500">OCC Lease:</span>
-                <span className="text-[#0C6BF5] font-mono font-bold">CAS Lease v{stagePayload.actData.actuation.occVersion.from} → v{stagePayload.actData.actuation.occVersion.to} Acquired</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                <span className="text-slate-500">Idempotency Key:</span>
-                <span className="text-slate-800 font-mono text-[11px]">{stagePayload.actData.actuation.idempotencyKey}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Mutation Dispatched:</span>
-                <span className="text-[#00B37E] font-mono font-bold">{stagePayload.actData.actuation.mutationDispatched}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 6. RE-OBSERVE: Fresh State Re-observation */}
-        {stageId === 'REOBSERVE' && stagePayload.reobserveData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-3">
-            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
-              FRESH STATE RE-OBSERVATION
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                <span className="text-slate-500">Fresh Provider State:</span>
-                <span className="text-[#00B37E] font-mono font-bold">{stagePayload.reobserveData.reobservation.rePolledState}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                <span className="text-slate-500">Re-reconciliation Outcome:</span>
-                <span className="text-[#00B37E] font-bold">{stagePayload.reobserveData.reobservation.reconciliationOutcome}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Loop Status:</span>
-                <span className="text-[#0C6BF5] font-bold">VERIFIED CONVERGED</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 7. OUTCOME: Final Incident Disposition */}
-        {stageId === 'TERMINAL' && stagePayload.terminalData && (
-          <div className="mt-4 border-t border-[#E2E8F0] pt-4 font-sans text-xs">
-            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider pb-1.5 border-b border-slate-100">
-              FINAL INCIDENT DISPOSITION
-            </div>
-            <div className={`text-base font-bold pt-2 ${
-              stagePayload.terminalData.finalState === 'RESOLVED' ? 'text-[#00B37E]' : 'text-rose-700'
-            }`}>
-              {stagePayload.terminalData.finalState}
-            </div>
-            <div className="text-slate-700 text-xs mt-1.5 leading-relaxed">
-              {stagePayload.terminalData.resolutionSummary}
-            </div>
-            {stagePayload.terminalData.honestEscalationReason && (
-              <div className="text-rose-800 text-xs pt-2 mt-2 border-t border-rose-100">
-                <strong>Halt reason:</strong> {stagePayload.terminalData.honestEscalationReason}
-              </div>
-            )}
-          </div>
-        )}
-      </>
-    );
-  };
-
-  // Running control trace timeline items
-  const timeline = [
-    ...(currentStageIndex === -1 ? [{ time: '11:57:00', stage: 'READY', detail: 'Event stream ingested · Queued for reconciliation' }] : []),
-    ...(currentStageIndex >= 0 ? [{ time: '11:57:01', stage: 'DETECT', detail: `discrepancy confirmed: ${currentScenario.discrepancyReason}` }] : []),
-    ...(currentStageIndex >= 1 ? [{ time: '11:57:02', stage: 'INVESTIGATE', detail: '4 bounded evidence records assembled; intent derived' }] : []),
-    ...(currentStageIndex >= 2 ? [{
-      time: '11:57:03',
-      stage: 'VERIFY',
-      detail: currentScenarioId === 'SCENARIO_B'
-        ? 'provider returned 404 NOT FOUND; verification failed'
-        : currentScenarioId === 'SCENARIO_C'
-          ? 'D4 caught fabricated evidence ID; rejected reasoning'
-          : 'provider verified: 200 OK captured: true'
-    }] : []),
-    ...(currentStageIndex >= 3 ? [{
-      time: '11:57:04',
-      stage: 'DECIDE',
-      detail: currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C'
-        ? 'mutation denied; containment halt triggered'
-        : `governance authorized mutation quota: ₹${currentScenario.amount.toLocaleString()}`
-    }] : []),
-    ...(currentStageIndex >= 4 ? [{
-      time: '11:57:05',
-      stage: 'ACT',
-      detail: currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C'
-        ? 'actuation blocked'
-        : 'OCC lock acquired v1 -> v2; refund dispatched'
-    }] : []),
-    ...(currentStageIndex >= 5 ? [{
-      time: '11:57:06',
-      stage: 'REOBSERVE',
-      detail: currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C'
-        ? 'skipped'
-        : 'fresh provider state re-queried: refunded (MATCH)'
-    }] : []),
-    ...(currentStageIndex >= 6 ? [{
-      time: '11:57:07',
-      stage: 'TERMINAL',
-      detail: currentScenario.terminalState
-    }] : [])
-  ];
+  const isOutputVisible = currentStageIndex >= 6;
+  const isEngineActive = currentStageIndex >= 1 && currentStageIndex < 6;
 
   return (
-    <div className="min-h-screen bg-[#F4F8FC] text-[#0C1A30] flex flex-col font-sans select-none">
-      {/* Removed Header for Simulation Showcase */}
+    <div className="w-full h-full bg-[#f8fafc] flex flex-col font-sans text-slate-800 relative overflow-hidden rounded-t-[6px]">
+      
+      {/* 1. Canvas Background */}
+      <DotGrid />
 
-      {/* 2. Subheader Controls Bar */}
-      <div className="bg-white border-b border-[#E2E8F0] px-8 py-2.5 flex flex-wrap items-center justify-between text-xs gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 font-medium">Scenario:</span>
+      {/* Top Controls Bar - Glassmorphism */}
+      <div className="flex items-center justify-between px-6 py-4 bg-white/70 backdrop-blur-md border-b border-slate-200/50 z-20 relative">
+        <div className="flex items-center gap-3">
           <select
             value={currentScenarioId}
             onChange={e => onSelectScenario(e.target.value as ScenarioPresetId)}
-            className="bg-white border border-[#D8E2EE] rounded px-3 py-1.5 text-xs font-semibold text-[#0C1A30] focus:outline-none focus:border-[#0C6BF5] cursor-pointer hover:border-slate-300 transition-colors"
+            className="bg-white border border-slate-200 rounded-md px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
           >
-            <option value="SCENARIO_B">Scenario B - Missing Provider Evidence (404)</option>
-            <option value="SCENARIO_A">Scenario A — Autonomous Refund & Convergence</option>
-            <option value="SCENARIO_C">Scenario C — Adversarial Hallucination Catch</option>
+            <option value="SCENARIO_A">Scenario A — Autonomous Refund</option>
+            <option value="SCENARIO_B">Scenario B - Missing Evidence</option>
+            <option value="SCENARIO_C">Scenario C — Hallucination Catch</option>
           </select>
         </div>
-
+        
         <div className="flex items-center gap-2">
           <button
-            type="button"
             onClick={onTogglePlay}
-            className={`px-3.5 py-1.5 rounded text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
-              isPlaying
-                ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                : 'bg-[#0C6BF5] hover:bg-[#0957C7] text-white'
+            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 ${
+              isPlaying 
+                ? 'bg-amber-500 hover:bg-amber-600 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
           >
-            {isPlaying ? '⏸ PAUSE' : '▶ RUN'}
+            {isPlaying ? 'PAUSE' : 'RUN'}
           </button>
-
           <button
-            type="button"
             onClick={onStepForward}
-            className="px-3 py-1.5 bg-white hover:bg-slate-50 text-[#0C1A30] border border-[#D8E2EE] rounded text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-md text-xs font-semibold shadow-sm transition-all text-slate-600"
           >
-            ⏭ STEP
+            STEP
           </button>
-
           <button
-            type="button"
             onClick={onReset}
-            className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-600 border border-[#D8E2EE] rounded text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-md text-xs font-semibold shadow-sm transition-all text-slate-600"
           >
-            ↺ RESET
+            RESET
           </button>
-
-          <div className="bg-slate-100 p-0.5 rounded flex items-center text-xs font-medium text-slate-600 ml-2 border border-slate-200">
-            {[1, 2, 0].map(s => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onChangeSpeed(s)}
-                className={`px-2.5 py-0.5 rounded transition-colors cursor-pointer ${
-                  playbackSpeed === s ? 'bg-white text-[#0C6BF5] font-bold shadow-2xs' : 'hover:text-slate-900'
-                }`}
-              >
-                {s === 0 ? 'Fast' : `${s}x`}
-              </button>
-            ))}
-          </div>
         </div>
-
       </div>
 
-      {/* Removed Live Webhook Drawer */}
+      {/* Flowchart Area */}
+      <div className="flex-1 relative w-full flex items-center justify-center p-8 z-10">
+        
+        {/* SVG Connectors Container */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+           <svg width="800" height="400" viewBox="0 0 800 400" className="overflow-visible">
+              <defs>
+                <linearGradient id="lineGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#818CF8" /> {/* Indigo */}
+                  <stop offset="100%" stopColor="#3B82F6" /> {/* Blue */}
+                </linearGradient>
+                <linearGradient id="lineGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#2DD4BF" /> {/* Teal */}
+                  <stop offset="100%" stopColor="#3B82F6" /> {/* Blue */}
+                </linearGradient>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6" />
+                </marker>
+                
+                {/* Glowing drop shadow for paths */}
+                <filter id="glow">
+                  <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                  <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+              </defs>
 
-      {/* 3. Main Investigation Workspace: The Operational Document */}
-      <main className="flex-1 w-full max-w-6xl mx-auto px-6 py-8 flex flex-col">
-        <div className="bg-white border border-[#D8E2EE] rounded-md p-8 flex flex-col">
-          {/* Case Identity Section */}
-          <div className="flex flex-wrap items-start justify-between gap-6">
-            <div>
-              <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-slate-400 mb-1 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-[#0C6BF5]" />
-                CASE FILE · TRANSACTION INVESTIGATION
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-2xl font-bold text-[#0C1A30] tracking-tight">
-                  {currentScenario.paymentId}
-                </span>
-                <span className="font-mono text-sm text-slate-400 font-normal">
-                  {currentScenario.orderId}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(currentScenario.paymentId)}
-                  className="text-slate-400 hover:text-[#0C6BF5] text-sm cursor-pointer transition-colors"
-                  title="Copy payment ID"
-                >
-                  {copiedText === currentScenario.paymentId ? '✓' : '❐'}
-                </button>
-              </div>
-              <div className="font-mono text-lg font-bold text-[#0C1A30] mt-1 tracking-tight">
-                ₹{currentScenario.amount.toLocaleString()}.00 {currentScenario.currency}
-              </div>
-              <div className="text-xs text-slate-500 font-normal mt-1 font-sans">
-                Merchant Order Lifecycle • Provider Webhook Settlement Stream
-              </div>
-            </div>
+              {/* Gateway to Engine Line */}
+              <motion.path 
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 1, ease: "easeInOut" }}
+                d="M 240 116 C 295 116, 295 200, 350 200"
+                fill="none"
+                stroke="url(#lineGrad1)"
+                strokeWidth="3"
+                filter={isEngineActive ? "url(#glow)" : ""}
+                strokeDasharray={isEngineActive ? "8 4" : "0"}
+                className={isEngineActive ? "animate-[dash_1s_linear_infinite]" : ""}
+              />
 
-            <div className="text-right">
-              {currentStageIndex === -1 ? (
-                <>
-                  <div className="text-xs font-sans font-bold uppercase tracking-wider text-slate-400">
-                    AWAITING RECONCILIATION
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1 font-sans">
-                    Status: <strong className="text-[#0C6BF5] font-bold">QUEUED FOR RECONCILIATION</strong>
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-1 font-mono">
-                    Control Loop: READY
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className={`text-xs font-sans font-bold uppercase tracking-wider ${
-                    currentScenario.discrepancyReason === 'STATE_MISMATCH'
-                      ? 'text-amber-700'
-                      : 'text-rose-700'
-                  }`}>
-                    {currentScenario.discrepancyReason}
-                  </div>
-                  <div className="text-xs text-slate-600 mt-1 font-sans">
-                    Expected: <strong className="text-[#00B37E] font-bold">{currentScenario.expectedStatus}</strong>
-                    {' → '}
-                    Observed: <strong className={currentScenario.observedStatus === 'SETTLED' ? 'text-[#00B37E] font-bold' : 'text-rose-600 font-bold'}>{currentScenario.observedStatus}</strong>
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1 font-mono">
-                    {currentStageIndex === 6 ? (
-                      <>
-                        Terminal: <strong className={currentScenario.terminalState === 'RESOLVED' ? 'text-[#00B37E] font-bold' : 'text-rose-600 font-bold'}>{currentScenario.terminalState}</strong>
-                      </>
-                    ) : (
-                      <>
-                        Status: <strong className="text-[#0C6BF5] font-semibold">INVESTIGATION IN PROGRESS</strong>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+              {/* Ledger to Engine Line */}
+              <motion.path 
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 1, ease: "easeInOut", delay: 0.2 }}
+                d="M 240 296 C 295 296, 295 200, 350 200"
+                fill="none"
+                stroke="url(#lineGrad2)"
+                strokeWidth="3"
+                filter={isEngineActive ? "url(#glow)" : ""}
+                strokeDasharray={isEngineActive ? "8 4" : "0"}
+                className={isEngineActive ? "animate-[dash_1s_linear_infinite]" : ""}
+              />
 
-          <hr className="border-[#E2E8F0] my-6" />
-
-          {/* Two-Column Investigation Layout (Left Stepper + Right Active Stage) */}
-          <div className="grid grid-cols-1 lg:grid-cols-[220px,1fr] gap-10 items-start">
-            {/* Left Column: Vertical Stepper Pipeline Navigation */}
-            <div className="relative flex flex-col space-y-6">
-              {/* Connecting line behind circles */}
-              <div className="absolute left-[10px] top-2.5 bottom-5 w-[1px] bg-[#E2E8F0] z-0" />
-
-              {STAGE_CONFIG.map((stage, idx) => {
-                const isCompleted = idx < currentStageIndex;
-                const isActive = idx === currentStageIndex;
-                const isSelected = selectedStageId === stage.id;
-                const isHaltStage = (currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C') && (stage.id === 'VERIFY' || stage.id === 'DECIDE');
-
-                return (
-                  <div key={stage.id} className="relative z-10 flex items-center justify-between group">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (idx <= currentStageIndex) {
-                          onSelectStage(stage.id);
-                        }
-                      }}
-                      className={`flex items-start gap-3 text-left flex-1 ${
-                        idx <= currentStageIndex ? 'cursor-pointer' : 'cursor-default'
-                      }`}
-                    >
-                      {/* Compact Restrained Circle Node */}
-                      {isCompleted ? (
-                        <div className={`w-5 h-5 rounded-full text-white font-bold text-[10px] flex items-center justify-center shrink-0 ${
-                          isHaltStage ? 'bg-rose-600' : 'bg-[#00B37E]'
-                        }`}>
-                          {isHaltStage ? '✕' : '✓'}
-                        </div>
-                      ) : isActive ? (
-                        <div className="w-5 h-5 rounded-full bg-[#0C6BF5] text-white font-bold text-[10px] flex items-center justify-center shrink-0">
-                          {stage.num}
-                        </div>
-                      ) : (
-                        <div className="w-5 h-5 rounded-full bg-white border border-[#D8E2EE] text-slate-400 font-medium text-[10px] flex items-center justify-center shrink-0">
-                          {stage.num}
-                        </div>
-                      )}
-
-                      {/* Stage Label & Subtitle */}
-                      <div className="pt-0.5">
-                        <div className={`text-xs font-bold uppercase tracking-wider font-sans transition-colors ${
-                          isActive
-                            ? 'text-[#0C6BF5]'
-                            : isSelected
-                              ? 'text-[#0C1A30] underline'
-                              : isCompleted
-                                ? 'text-slate-800'
-                                : 'text-slate-400'
-                        }`}>
-                          {stage.label}
-                        </div>
-                        <div className="text-[11px] text-slate-400 font-sans mt-0.5 leading-tight">
-                          {stage.sublabel}
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Active Stage Rail Indicator: 3px Razorpay-blue rail */}
-                    {isActive && (
-                      <div className="w-[3px] h-6 bg-[#0C6BF5] rounded-full shrink-0 ml-2" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Right Column: Active Stage Investigation Details */}
-            {currentStageIndex === -1 ? (
-              <div className="flex-1 min-w-0 font-sans">
-                {/* Top Meta Line */}
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-sans font-bold uppercase tracking-wider text-[10px] text-slate-400">
-                    STAGE 0 OF 7 · PRE-RECONCILIATION
-                  </span>
-                  <span className="text-slate-400 text-xs font-mono">
-                    Sep 5, 2026 11:57:00 AM
-                  </span>
-                </div>
-
-                {/* Title */}
-                <h2 className="text-xl font-bold text-[#0C1A30] font-sans mt-1 tracking-tight">
-                  Queued for Reconciliation
-                </h2>
-
-                {/* Headline */}
-                <p className="text-xs text-slate-600 mt-1.5 font-sans leading-relaxed">
-                  Transaction stream ingested from provider webhook and internal order ledger.
-                </p>
-
-                {/* Rationale */}
-                <p className="text-xs text-slate-500 mt-1 font-sans">
-                  <strong className="text-[#0C1A30] font-semibold">Execution State:</strong>{' '}
-                  No control execution has run. Click "▶ RUN" for autonomous loop or "⏭ STEP" to inspect step 01 (DETECT).
-                </p>
-
-                {/* Content: Clean Inputs for SIMULATION */}
-                <div className="mt-5 border-t border-[#E2E8F0] pt-4 font-sans text-xs space-y-4">
-                  <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                    PAYLOAD INGESTION (MOCK)
-                  </div>
-                  <div className="bg-[#0C1A30] rounded p-4 overflow-x-auto text-slate-300">
-                    <pre className="font-mono text-[11px] leading-relaxed">
-{`{
-  "event": "payment.captured",
-  "payload": {
-    "payment": {
-      "entity": {
-        "id": "${caseIdentity.paymentId}",
-        "amount": ${caseIdentity.amount},
-        "currency": "${caseIdentity.currency}",
-        "status": "captured",
-        "order_id": "${caseIdentity.orderId}",
-        "method": "upi"
-      }
-    }
-  }
-}`}
-                    </pre>
-                  </div>
-                </div>
-
-                {/* 7-stage pending overview with Accordion */}
-                <div className="mt-6 border-t border-slate-100 pt-3">
-                  <div className="flex items-center justify-between pb-2">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                      7-STAGE CONTROL PIPELINE PRE-FLIGHT OVERVIEW
-                    </span>
-                    <button
-                      type="button"
-                      onClick={areAllStagesExpanded ? collapseAllStages : expandAllStages}
-                      className="text-[11px] font-sans text-[#0C6BF5] hover:text-[#0A58CA] font-medium cursor-pointer"
-                    >
-                      {areAllStagesExpanded ? 'Collapse All Stages' : 'Expand All Stages'}
-                    </button>
-                  </div>
-
-                  <div className="divide-y divide-slate-100">
-                    {STAGE_CONFIG.map((stage, idx) => {
-                      const isExpanded = !!expandedStageIds[stage.id];
-                      const stagePayload = currentScenario.stages[stage.id];
-
-                      return (
-                        <div key={stage.id} className="py-1">
-                          <div
-                            onClick={() => toggleStageExpanded(stage.id)}
-                            className="flex items-center justify-between py-2 px-1 text-xs font-sans hover:bg-slate-50 cursor-pointer rounded transition-colors group select-none"
-                          >
-                            <div className="flex items-center gap-3 truncate min-w-0">
-                              <span className="w-3.5 text-center text-xs text-slate-400 font-bold shrink-0">○</span>
-                              <span className="font-bold text-slate-600 group-hover:text-[#0C6BF5] shrink-0 w-32">0{idx + 1} {stage.label}</span>
-                              <span className="text-slate-500 font-normal truncate">
-                                {stage.sublabel} · Queued for execution
-                              </span>
-                            </div>
-                            <span
-                              className={`text-slate-400 text-sm font-mono ml-4 shrink-0 transition-transform duration-150 inline-block ${
-                                isExpanded ? 'rotate-90 text-[#0C6BF5] font-bold' : 'group-hover:text-[#0C6BF5]'
-                              }`}
-                            >
-                              ›
-                            </span>
-                          </div>
-
-                          {isExpanded && (
-                            <div className="px-3.5 py-3 mt-1 mb-2 bg-slate-50/70 border border-slate-200 rounded text-xs font-sans shadow-sm">
-                              <div className="font-bold text-[#0C1A30] text-sm">
-                                {stagePayload?.title || `0${idx + 1} ${stage.label}`}
-                              </div>
-                              <div className="text-slate-500 text-[11px] mt-0.5">
-                                {stagePayload?.headline || stage.sublabel}
-                              </div>
-                              {stagePayload?.whyThisHappened && (
-                                <p className="text-[11px] text-slate-500 mt-2 font-sans">
-                                  <strong className="text-[#0C1A30] font-semibold">Planned Invariants:</strong> {stagePayload.whyThisHappened}
-                                </p>
-                              )}
-                              {renderStageForensicContent(stage.id, stagePayload)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 min-w-0">
-                {/* Top Meta Line */}
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-sans font-bold uppercase tracking-wider text-[10px] text-slate-400">
-                    STAGE {STAGE_CONFIG.findIndex(s => s.id === selectedStageId) + 1} OF {STAGE_CONFIG.length}
-                  </span>
-                  <span className="flex items-center gap-1.5 text-slate-400 text-xs font-mono">
-                    <span>Sep 5, 2026 11:57:03 AM</span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(`STAGE: ${activeStagePayload?.title}`)}
-                      className="hover:text-slate-600 cursor-pointer"
-                      title="Copy stage reference"
-                    >
-                      {copiedText?.startsWith('STAGE:') ? '✓' : '❐'}
-                    </button>
-                  </span>
-                </div>
-
-                {/* Title */}
-                <h2 className="text-xl font-bold text-[#0C1A30] font-sans mt-1 tracking-tight">
-                  {activeStagePayload?.title}
-                </h2>
-
-                {/* Headline */}
-                <p className="text-xs text-slate-600 mt-1.5 font-sans leading-relaxed">
-                  {activeStagePayload?.headline}
-                </p>
-
-                {/* Rationale */}
-                <p className="text-xs text-slate-500 mt-1 font-sans">
-                  <strong className="text-[#0C1A30] font-semibold">Rationale:</strong> {activeStagePayload?.whyThisHappened}
-                </p>
-
-              {/* STAGE-SPECIFIC FORENSIC EVIDENCE */}
-              {renderStageForensicContent(effectiveStageId, activeStagePayload)}
-
-              {/* Pipeline Stage Trail with Accordion */}
-              <div className="mt-6 border-t border-slate-100 pt-3">
-                <div className="flex items-center justify-between pb-2">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                    PIPELINE STAGE TRAIL &amp; DETAILED FORENSICS
-                  </span>
-                  <button
-                    type="button"
-                    onClick={areAllStagesExpanded ? collapseAllStages : expandAllStages}
-                    className="text-[11px] font-sans text-[#0C6BF5] hover:text-[#0A58CA] font-medium cursor-pointer"
-                  >
-                    {areAllStagesExpanded ? 'Collapse All Stages' : 'Expand All Stages'}
-                  </button>
-                </div>
-
-                <div className="divide-y divide-slate-100">
-                  {STAGE_CONFIG.map((stage, stageIdx) => {
-                    const isCompleted = stageIdx < currentStageIndex;
-                    const isActive = stageIdx === currentStageIndex;
-                    const isSelectedAtTop = selectedStageId === stage.id;
-                    const isExpanded = !!expandedStageIds[stage.id];
-                    const isHaltStage = (currentScenarioId === 'SCENARIO_B' || currentScenarioId === 'SCENARIO_C') && (stage.id === 'VERIFY' || stage.id === 'DECIDE');
-                    const stagePayload = currentScenario.stages[stage.id];
-
-                    return (
-                      <div key={stage.id} className="py-1">
-                        <div
-                          onClick={() => toggleStageExpanded(stage.id)}
-                          className="flex items-center justify-between py-2 px-1 text-xs font-sans hover:bg-slate-50 cursor-pointer rounded transition-colors group select-none"
-                        >
-                          <div className="flex items-center gap-3 truncate min-w-0">
-                            <span className={`w-3.5 text-center text-xs shrink-0 ${
-                              isHaltStage
-                                ? 'text-rose-600 font-bold'
-                                : isCompleted
-                                  ? 'text-[#00B37E] font-bold'
-                                  : isActive
-                                    ? 'text-[#0C6BF5] font-bold'
-                                    : 'text-slate-400'
-                            }`}>
-                              {isHaltStage ? '✕' : isCompleted ? '✓' : isActive ? '●' : '○'}
-                            </span>
-                            <span className={`font-bold shrink-0 w-32 ${
-                              isActive || isSelectedAtTop
-                                ? 'text-[#0C6BF5]'
-                                : stageIdx <= currentStageIndex
-                                  ? 'text-[#0C1A30] group-hover:text-[#0C6BF5]'
-                                  : 'text-slate-500'
-                            }`}>
-                              0{stageIdx + 1} {stage.label}
-                            </span>
-                            {isSelectedAtTop && (
-                              <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-[#0C6BF5]/10 text-[#0C6BF5] shrink-0 font-mono">
-                                ACTIVE VIEW
-                              </span>
-                            )}
-                            <span className="text-slate-500 font-normal truncate">
-                              {stageIdx <= currentStageIndex ? getStageTrailSummary(stage.id) : getStagePendingSummary(stage.id)}
-                            </span>
-                          </div>
-                          <span
-                            className={`text-slate-400 text-sm font-mono ml-4 shrink-0 transition-transform duration-150 inline-block ${
-                              isExpanded ? 'rotate-90 text-[#0C6BF5] font-bold' : 'group-hover:text-[#0C6BF5]'
-                            }`}
-                          >
-                            ›
-                          </span>
-                        </div>
-
-                        {/* Inline Expandable Accordion Body */}
-                        {isExpanded && (
-                          <div className="px-3.5 py-3 mt-1 mb-2 bg-slate-50/70 border border-slate-200 rounded text-xs font-sans shadow-sm">
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                              <div>
-                                <div className="font-bold text-[#0C1A30] text-sm">
-                                  {stagePayload?.title || `0${stageIdx + 1} ${stage.label}`}
-                                </div>
-                                <div className="text-slate-500 text-[11px] mt-0.5">
-                                  {stagePayload?.headline || stage.sublabel}
-                                </div>
-                              </div>
-                              {!isSelectedAtTop && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onSelectStage(stage.id);
-                                  }}
-                                  className="text-[11px] font-medium text-[#0C6BF5] hover:underline cursor-pointer ml-2 shrink-0 flex items-center gap-1"
-                                  title="Set as primary view in header"
-                                >
-                                  <span>Focus Hero View</span>
-                                  <span>↗</span>
-                                </button>
-                              )}
-                            </div>
-
-                            {stagePayload?.whyThisHappened && (
-                              <p className="text-[11px] text-slate-500 mt-2 font-sans">
-                                <strong className="text-[#0C1A30] font-semibold">Rationale:</strong> {stagePayload.whyThisHappened}
-                              </p>
-                            )}
-
-                            {stageIdx <= currentStageIndex ? (
-                              renderStageForensicContent(stage.id, stagePayload)
-                            ) : (
-                              <div className="mt-3 p-2.5 bg-white border border-slate-200 rounded text-slate-500 text-xs italic">
-                                Stage queued. Awaiting execution of preceding pipeline stages in the control loop.
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-          </div>
-
-          {/* Integrated Audit & Machine Proof Section (Expandable/Toggleable) */}
-          {showAuditSection && (
-            <div className="mt-8 pt-6 border-t border-[#E2E8F0]">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs font-sans">
-                {/* Left: Machine Proof Assertions */}
-                <div>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5 pb-1 border-b border-slate-100">
-                    MACHINE PROOF ASSERTIONS ({proofs.length})
-                  </div>
-                  <div className="space-y-1.5 text-slate-700">
-                    {proofs.map(p => (
-                      <div key={p.id} className="flex items-start gap-2">
-                        <span className={`shrink-0 font-bold ${p.status === 'BLOCKED' ? 'text-rose-600' : 'text-[#00B37E]'}`}>
-                          {p.status === 'BLOCKED' ? '✕' : '✓'}
-                        </span>
-                        <div>
-                          <span className="font-semibold text-[#0C1A30]">{p.title}</span>
-                          {p.subtitle && <span className="text-slate-500 text-[11px] ml-2 font-mono">— {p.subtitle}</span>}
-                        </div>
-                      </div>
-                    ))}
-                    {proofs.length === 0 && (
-                      <div className="text-slate-400 text-xs italic">
-                        Run or step through the loop to accumulate verified substrate assertions.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right: Running Control Trace */}
-                <div>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5 pb-1 border-b border-slate-100 flex items-center justify-between">
-                    <span>RUNNING CONTROL TRACE</span>
-                    <span className="text-slate-400 font-normal font-mono">{timeline.length} events</span>
-                  </div>
-                  <div className="space-y-1 text-slate-600 text-[11px]">
-                    {timeline.map((item, i) => (
-                      <div key={i} className="flex items-baseline gap-3 font-mono">
-                        <span className="text-slate-400 shrink-0 text-[10px]">{item.time}</span>
-                        <span className="text-[#0C6BF5] font-bold shrink-0">{item.stage}</span>
-                        <span className="text-[#0C1A30] truncate">{item.detail}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Operator Controls Bar */}
-              <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-500 gap-2 font-sans">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">OPERATOR CONTROLS:</span>
-                  {operatorNotice && <span className="text-[#00B37E] text-[11px] font-semibold">{operatorNotice}</span>}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setOperatorNotice('Operator manual resolution recorded.')}
-                    className="px-3 py-1 bg-white hover:bg-slate-50 border border-[#D8E2EE] rounded text-[#0C1A30] hover:border-slate-300 transition-colors font-semibold text-xs cursor-pointer"
-                  >
-                    MANUAL RESOLVE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOperatorNotice('Pipeline retry scheduled.')}
-                    className="px-3 py-1 bg-white hover:bg-amber-50 border border-amber-200 rounded text-amber-800 hover:border-amber-300 transition-colors font-semibold text-xs cursor-pointer"
-                  >
-                    RETRY PIPELINE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOperatorNotice('Forced escalation logged.')}
-                    className="px-3 py-1 bg-white hover:bg-rose-50 border border-rose-200 rounded text-rose-700 hover:border-rose-300 transition-colors font-semibold text-xs cursor-pointer"
-                  >
-                    FORCE ESCALATE
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+              {/* Engine to Output Line */}
+              <motion.path 
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: isOutputVisible ? 1 : 0, opacity: isOutputVisible ? 1 : 0 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                d="M 450 200 L 555 200"
+                fill="none"
+                stroke="#3B82F6"
+                strokeWidth="3"
+                markerEnd="url(#arrowhead)"
+              />
+           </svg>
         </div>
-      </main>
 
-      {/* 4. Bottom Page Footer Bar */}
-      <footer className="border-t border-[#E2E8F0] px-8 py-3 bg-white mt-auto flex items-center justify-between text-xs font-mono text-slate-400">
-        <div>Financial Control Engine v2.0.0 | Deterministic Test Matrix</div>
-        <div>Detect → Investigate → Verify → Decide → Act → Re-observe</div>
-      </footer>
+        {/* Nodes Container */}
+        <div className="relative w-[800px] h-[400px]">
+          
+          {/* 1. Gateway Node */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ y: -2, boxShadow: "0 20px 40px -10px rgba(99,102,241,0.15)" }}
+            className="absolute left-[20px] top-[60px] w-[220px] h-[112px] bg-white rounded-xl shadow-lg border border-slate-200/60 flex flex-col z-10 transition-all duration-300"
+          >
+            {/* Header */}
+            <div className="h-9 bg-indigo-50 border-b border-indigo-100 rounded-t-xl px-3 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-indigo-500" />
+              <span className="text-indigo-900 font-bold text-[11px] uppercase tracking-wider">Gateway</span>
+            </div>
+            {/* Body */}
+            <div className="flex-1 p-3 flex flex-col justify-center">
+              <div className="text-slate-700 text-xl font-bold tracking-tight">
+                {formatAmt(observed.amount)}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${(observed.status as string) === 'SUCCESS' || (observed.status as string) === 'AUTHORIZED' || (observed.status as string) === 'Success' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500'}`} />
+                <span className="text-slate-500 text-xs font-medium">{observed.status}</span>
+              </div>
+            </div>
+            {/* Connection Handle (Right) */}
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-white border-2 border-indigo-400 rounded-full z-20" />
+          </motion.div>
+
+          {/* 2. Internal Ledger Node */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            whileHover={{ y: -2, boxShadow: "0 20px 40px -10px rgba(20,184,166,0.15)" }}
+            className="absolute left-[20px] top-[240px] w-[220px] h-[112px] bg-white rounded-xl shadow-lg border border-slate-200/60 flex flex-col z-10 transition-all duration-300"
+          >
+            {/* Header */}
+            <div className="h-9 bg-teal-50 border-b border-teal-100 rounded-t-xl px-3 flex items-center gap-2">
+              <Database className="w-4 h-4 text-teal-500" />
+              <span className="text-teal-900 font-bold text-[11px] uppercase tracking-wider">Internal Ledger</span>
+            </div>
+            {/* Body */}
+            <div className="flex-1 p-3 flex flex-col justify-center">
+              <div className="text-slate-700 text-xl font-bold tracking-tight">
+                {formatAmt(expected.amount)}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${(expected.status as string) === 'CAPTURED' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'}`} />
+                <span className="text-slate-500 text-xs font-medium">{expected.status === 'UNKNOWN' ? 'Missing entry' : expected.status}</span>
+              </div>
+            </div>
+            {/* Connection Handle (Right) */}
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-white border-2 border-teal-400 rounded-full z-20" />
+          </motion.div>
+
+          {/* 3. Central FCE Engine Node */}
+          <motion.div 
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.2, type: "spring", stiffness: 300, damping: 20 }}
+            whileHover={{ scale: 1.05 }}
+            className={`absolute left-[350px] top-[150px] w-[100px] h-[100px] bg-white rounded-2xl shadow-xl flex items-center justify-center z-10 transition-colors duration-300 ${isEngineActive ? 'border-2 border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.3)]' : 'border border-slate-200'}`}
+          >
+            {/* Custom FCE Blue Chevron Logo */}
+            <svg width="44" height="44" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className={isEngineActive ? "animate-pulse" : ""}>
+              <path d="M12 30 L22 10 L28 10 L18 30 Z" fill="#2563EB" />
+              <path d="M22 30 L32 10 L38 10 L28 30 Z" fill="#60A5FA" />
+            </svg>
+
+            {/* Connection Handle (Left) */}
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-blue-400 rounded-full z-20" />
+            {/* Connection Handle (Right) */}
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-white border-2 border-blue-400 rounded-full z-20" />
+          </motion.div>
+
+          {/* 4. Outcome/Reconciled Node */}
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: isOutputVisible ? 1 : 0, x: isOutputVisible ? 0 : 20 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            whileHover={{ y: -2, boxShadow: "0 20px 40px -10px rgba(16,185,129,0.15)" }}
+            className="absolute left-[560px] top-[144px] w-[220px] h-[112px] bg-white rounded-xl shadow-lg border border-slate-200/60 flex flex-col z-10 transition-all duration-300"
+          >
+            {/* Header */}
+            <div className={`h-9 border-b rounded-t-xl px-3 flex items-center gap-2 ${terminalState === 'RESOLVED' ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+              {terminalState === 'RESOLVED' ? (
+                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-amber-500" />
+              )}
+              <span className={`font-bold text-[11px] uppercase tracking-wider ${terminalState === 'RESOLVED' ? 'text-emerald-900' : 'text-amber-900'}`}>
+                {terminalState === 'RESOLVED' ? 'Reconciled' : 'Escalated'}
+              </span>
+            </div>
+            {/* Body */}
+            <div className="flex-1 p-3 flex flex-col justify-center">
+              <div className="text-slate-700 text-xl font-bold tracking-tight">
+                {formatAmt(currentScenario.amount)}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${terminalState === 'RESOLVED' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} />
+                <span className="text-slate-500 text-xs font-medium">
+                  {terminalState === 'RESOLVED' ? 'Refund issued' : 'Flagged for review'}
+                </span>
+              </div>
+            </div>
+            {/* Connection Handle (Left) */}
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-blue-400 rounded-full z-20" />
+          </motion.div>
+
+        </div>
+      </div>
     </div>
   );
 };
