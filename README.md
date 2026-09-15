@@ -84,8 +84,8 @@ To initialize the backend execution engine and execute the deterministic test su
 ### Local LLM Requirements
 FCE requires [Ollama](https://ollama.com/) to be running locally for the probabilistic investigation phase.
 ```bash
-# Pull the required reasoning model
-ollama pull qwen3:8b
+# Pull your preferred reasoning model (e.g., qwen2.5:14b, llama3, etc.)
+ollama pull <model_name>
 ```
 
 ### Backend Initialization
