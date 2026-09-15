@@ -6,6 +6,7 @@ interface TelemetryDockProps {
   currentScenarioId: ScenarioPresetId;
   onSelectScenario: (scenarioId: ScenarioPresetId) => void;
   isPlaying: boolean;
+  hasStarted: boolean;
   onTogglePlay: () => void;
   onStepForward: () => void;
   onReset: () => void;
@@ -20,6 +21,7 @@ export const TelemetryDock: React.FC<TelemetryDockProps> = ({
   currentScenarioId,
   onSelectScenario,
   isPlaying,
+  hasStarted,
   onTogglePlay,
   onStepForward,
   onReset,
@@ -77,7 +79,7 @@ export const TelemetryDock: React.FC<TelemetryDockProps> = ({
           }`}
         >
           {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" fill="currentColor" />}
-          {isPlaying ? 'PAUSE' : 'RUN'}
+          {isPlaying ? 'PAUSE' : (hasStarted ? 'RESUME' : 'RUN')}
         </button>
         <button
           onClick={onStepForward}

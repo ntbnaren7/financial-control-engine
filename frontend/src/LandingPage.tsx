@@ -121,7 +121,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
       <footer className="border-t border-white/10 bg-black py-12 relative z-10">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2">
-            <span className="text-xl font-bold tracking-tight text-white">Strata</span>
+            <span className="text-xl font-bold tracking-tight text-white">Invariant</span>
             <span className="text-zinc-500 text-sm font-medium ml-2">| Razorpay Buildathon 2026</span>
           </div>
           <div className="font-mono text-[11px] tracking-widest uppercase text-zinc-500">

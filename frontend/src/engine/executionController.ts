@@ -84,6 +84,7 @@ export class ExecutionController {
   }
 
   private emitStateChange() {
+    this.state = { ...this.state };
     this.listeners.forEach(l => l(this.state));
   }
 
@@ -106,7 +107,6 @@ export class ExecutionController {
 
       case 'RECONCILIATION_ESTABLISHED':
         s.currentStageIndex = 0;
-        s.selectedStageId = 'DETECT';
         s.status = 'INVESTIGATING';
         s.discrepancyEstablished = true;
         s.discrepancy = {
@@ -124,7 +124,6 @@ export class ExecutionController {
 
       case 'INVESTIGATION_BOUNDED':
         s.currentStageIndex = 1;
-        s.selectedStageId = 'INVESTIGATE';
         s.status = 'INVESTIGATING';
         s.accumulatedProofs = this.accumulateProofsUpTo(1, scenario);
         s.timeline = [
@@ -135,7 +134,6 @@ export class ExecutionController {
 
       case 'VERIFICATION_ASSERTED':
         s.currentStageIndex = 2;
-        s.selectedStageId = 'VERIFY';
         s.status = 'INVESTIGATING';
         s.accumulatedProofs = this.accumulateProofsUpTo(2, scenario);
         s.timeline = [
@@ -146,7 +144,6 @@ export class ExecutionController {
 
       case 'GOVERNANCE_EVALUATED':
         s.currentStageIndex = 3;
-        s.selectedStageId = 'DECIDE';
         s.status = 'INVESTIGATING';
         s.accumulatedProofs = this.accumulateProofsUpTo(3, scenario);
         s.timeline = [
@@ -157,7 +154,6 @@ export class ExecutionController {
 
       case 'ACTUATION_DISPATCHED':
         s.currentStageIndex = 4;
-        s.selectedStageId = 'ACT';
         s.status = 'INVESTIGATING';
         s.accumulatedProofs = this.accumulateProofsUpTo(4, scenario);
         s.timeline = [
@@ -168,7 +164,6 @@ export class ExecutionController {
 
       case 'OBSERVATION_COLLECTED':
         s.currentStageIndex = 5;
-        s.selectedStageId = 'REOBSERVE';
         s.status = 'INVESTIGATING';
         s.accumulatedProofs = this.accumulateProofsUpTo(5, scenario);
         s.timeline = [
@@ -180,7 +175,6 @@ export class ExecutionController {
       case 'TERMINAL_CONVERGED':
       case 'TERMINAL_ESCALATED':
         s.currentStageIndex = 6;
-        s.selectedStageId = 'TERMINAL';
         s.isPlaying = false;
         s.status = scenario.terminalState === 'RESOLVED' ? 'RESOLVED' : 'ESCALATED';
         s.discrepancy = {
@@ -409,8 +403,11 @@ export class ExecutionController {
       return;
     }
 
-    const delay =
+    const baseDelay =
       this.state.playbackSpeed === 0 ? 350 : this.state.playbackSpeed === 2 ? 1400 : 2500;
+      
+    // Start the very first stage faster (1 second) to feel responsive, then use normal speed
+    const delay = this.state.currentStageIndex === -1 ? 1000 : baseDelay;
 
     this.playTimer = setTimeout(() => {
       this.advanceOneStep();

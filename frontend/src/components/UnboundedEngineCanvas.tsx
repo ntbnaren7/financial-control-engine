@@ -25,6 +25,8 @@ export const UnboundedEngineCanvas: React.FC<UnboundedEngineCanvasProps> = ({
   currentScenarioId,
   onSelectScenario,
   currentStageIndex,
+  selectedStageId,
+  onSelectStage,
   isPlaying,
   onTogglePlay,
   onStepForward,
@@ -212,7 +214,10 @@ export const UnboundedEngineCanvas: React.FC<UnboundedEngineCanvasProps> = ({
             <ConnectionCables nodes={nodes} connections={connections} />
             
             {nodes.map(node => (
-              <NodeCard key={node.id} {...node} />
+              <NodeCard 
+                key={node.id} 
+                {...node} 
+              />
             ))}
           </div>
 
@@ -224,11 +229,13 @@ export const UnboundedEngineCanvas: React.FC<UnboundedEngineCanvasProps> = ({
         currentScenarioId={currentScenarioId}
         onSelectScenario={onSelectScenario}
         isPlaying={isPlaying}
+        hasStarted={currentStageIndex >= 0}
         onTogglePlay={onTogglePlay}
         onStepForward={onStepForward}
         onReset={onReset}
         metrics={metrics}
       />
+
     </div>
   );
 };

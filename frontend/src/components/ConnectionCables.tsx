@@ -19,8 +19,9 @@ export const ConnectionCables: React.FC<ConnectionCablesProps> = ({ nodes, conne
     const node = nodes.find(n => n.id === id);
     if (!node) return { x: 0, y: 0 };
     
-    const nodeWidth = 256; // w-64 = 16rem = 256px
-    const nodeHeight = 104; // approximate height of NodeCard
+    const nodeWidth = 280; // Updated from 256 to match w-[280px]
+    // The DETECT node has 3 metrics (~131px tall), others have 2 metrics (~107px tall)
+    const nodeHeight = node.metrics && node.metrics.length === 3 ? 131 : 107;
     
     if (type === 'output') {
       return {
