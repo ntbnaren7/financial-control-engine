@@ -10,6 +10,7 @@ import type {
 
 import { FlickeringGrid } from './components/FlickeringGrid';
 import { PipelineIdeView } from './components/PipelineIdeView';
+import { OpenSourceSection } from './components/OpenSourceSection';
 
 interface LandingPageProps {
   currentScenario: ScenarioDefinition;
@@ -119,6 +120,7 @@ export const LandingPage: React.FC<LandingPageProps> = (props) => {
       </section>
 
       <PipelineIdeView />
+      <OpenSourceSection />
 
       {/* Footer */}
       <footer className="border-t border-white/10 bg-black py-12 relative z-10">

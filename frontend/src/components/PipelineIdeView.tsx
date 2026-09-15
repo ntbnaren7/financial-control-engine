@@ -47,7 +47,7 @@ export const PipelineIdeView: React.FC = () => {
   };
 
   return (
-    <section id="how-it-works" className="w-full relative z-10 pt-24 pb-24">
+    <section id="how-it-works" className="w-full relative z-10 pt-24 pb-0">
       
       {/* Background Ambience */}
       <div className="absolute inset-0 canvas-dot-grid pointer-events-none opacity-50" />
