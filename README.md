@@ -1,4 +1,4 @@
-# Financial Control Engine (FCE)
+# Invariant (Financial Control Engine)
 *Autonomous Financial Exception Control with Deterministic Safety Boundaries*
 
 **Razorpay Buildathon — Track 4 (Control & Governance) × Track 3 (Autonomous Recovery)**
@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-The Financial Control Engine (FCE) presents a novel dual-layer control architecture for autonomous financial reconciliation and exception recovery. The system explicitly untrusts artificial intelligence in financial execution. Instead of delegating financial authority to a Large Language Model (LLM), FCE isolates the probabilistic reasoning of an LLM within a strictly bounded deterministic verification kernel. 
+The Invariant (FCE) presents a novel dual-layer control architecture for autonomous financial reconciliation and exception recovery. The system explicitly untrusts artificial intelligence in financial execution. Instead of delegating financial authority to a Large Language Model (LLM), Invariant isolates the probabilistic reasoning of an LLM within a strictly bounded deterministic verification kernel. 
 
 Under this architecture, the AI investigates payment mismatches and formulates structured causal hypotheses. However, all external ground truth verification and state mutations (such as issuing refunds) are strictly executed by the deterministic control layer. This ensures that idempotent financial operations remain mathematically verifiable and completely isolated from model hallucinations.
 
@@ -22,13 +22,13 @@ Modern financial infrastructure operates at immense scale, yet exception handlin
 2. **Unauthorized Mutation**: Delegating write-access to financial APIs (e.g., Stripe, Razorpay) directly to LLMs violates core governance and compliance principles.
 3. **State Desynchronization**: Agentic retry loops without strict idempotency risk catastrophic failures like double-spending.
 
-FCE solves this by introducing a firm boundary between *inference* and *actuation*.
+Invariant solves this by introducing a firm boundary between *inference* and *actuation*.
 
 ---
 
 ## 3. System Architecture
 
-The FCE pipeline is explicitly designed to isolate probabilistic reasoning from deterministic financial execution through a rigorous 7-stage pipeline.
+The Invariant pipeline is explicitly designed to isolate probabilistic reasoning from deterministic financial execution through a rigorous 7-stage pipeline.
 
 ```
 01 DETECT ➔ 02 INVESTIGATE ➔ [ D4 BOUNDARY ] ➔ 03 VERIFY ➔ 04 DECIDE ➔ 05 ACT ➔ 06 RE-OBSERVE ➔ 07 OUTCOME
@@ -82,7 +82,7 @@ The architecture enforces strict mathematical and computational boundaries to mi
 
 To initialize the backend execution engine and execute the deterministic test suites within a local environment, proceed with the following commands:
 ### Local LLM Requirements
-FCE requires [Ollama](https://ollama.com/) to be running locally for the probabilistic investigation phase.
+Invariant requires [Ollama](https://ollama.com/) to be running locally for the probabilistic investigation phase.
 ```bash
 # Pull your preferred reasoning model (e.g., qwen2.5:14b, llama3, etc.)
 ollama pull <model_name>
